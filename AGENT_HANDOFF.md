@@ -499,3 +499,30 @@ Recoverability:
 - Build logs `C:\Users\Quickemu\nvgtest-*.log` and `*-compile.log` sit outside the clones and were not deleted.
 - Not affected: ollama state, VM image config, any file outside those clone dirs and those /tmp files.
 **Stop:** all further cleanup and deletion by Opus and workers is suspended until the owner clarifies scope. hard-7 was told (interrupt) to delete nothing and to write new outputs to new dirs.
+
+## Review — osx-x64 + final packages (Opus, 2026-11-01)
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-7 | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-7 | 1bd250a | APPROVE. Closed. Contains a merge of team e34ae92 (d68f314) plus packaging commits 0f92ecb, 5fb869d, 40b0c55, 1bd250a. One fix round: the Linux tarball had an empty `locales/` (750 tree built from a bundle without the `public` submodule). Both package scripts now refuse to build when locales are missing or empty, or didn't land in the package. |
+
+Final packages (all built from code = team e34ae92, which includes hard-6):
+| Package | Path | Size | sha256 |
+|---|---|---|---|
+| osx-arm64 DMG | `/tmp/nvg-hard7/out-b2-arm64/NonsensicalVideoGenerator-1.8.3.0-osx-arm64.dmg` (Mac) | 171 MB | 07a4bcbe8067cd4ddba144d5f3b01510fcc4b26e592e2388fd11a28fd7bf334d |
+| osx-x64 DMG | `/tmp/nvg-hard7/out-b2-x64/NonsensicalVideoGenerator-1.8.3.0-osx-x64.dmg` (Mac) | 139 MB | 20a16723e62ecbe2a977450507d3a3aa752eba92eb891978df35f8095e208ef1 |
+| linux-x64 tarball | `~/nvg-p7/out-b3/NonsensicalVideoGenerator-1.8.3.0-linux-x64.tar.gz` (750) | 187 MB | 8084226cabd950fd6471d73eab8e46b8eace31cfd24d5ec52ec48396a6814496 |
+Note: the Mac DMGs were built before 1bd250a. 1bd250a only adds guards, and both DMGs contain all 6 locale JSONs, so they don't need a rebuild. Superseded outputs are kept (nothing deleted): `/tmp/nvg-hard7/out` (Phase A x64) and `~/nvg-p7/out-b2` (Linux without locales: **don't use**). `~/nvg-p7` is 3.7 GB; 750 has 15 GB free.
+
+Per installed package (worker-reported; arm64 also re-checked by Opus: sha256, 6/6 locales, codesign):
+- 30 s launch with a temp data root; the boot movie decodes with the packaged FFmpeg 7.
+- Cache and console.txt land under the data root.
+- sha256 of every app/prefix file is unchanged after the launch. macOS `codesign -v --deep` passes after the launch.
+- Upgrade over the same location kept the renders/cache/library/plugins markers and a user-edited stock file.
+- osx-x64: 325 Mach-Os are x86_64 only, cross-built with `clang -arch x86_64`, no asm (no nasm).
+SIGTERM exit: arm64 143 clean; linux-x64 143 clean (after the locale fix; it only logs "alc_cleanup: 1 device not closed"); **osx-x64 -6 SIGABRT** ("libc++abi: recursive_mutex lock failed: Invalid argument"; reproduces with the packaged libs, under Rosetta). It's an open defect on osx-x64. Not yet known: whether a normal window close aborts too, and whether it happens on real Intel hardware or only under Rosetta.
+
+Open items:
+1. osx-x64 shutdown abort (src or native-lib teardown; no worker assigned yet).
+2. Human/computer-use GUI pass. Sol has started on osx-arm64; Linux is next, then osx-x64.
+3. Windows interactive launch in the VM desktop.
+4. No notarisation (ad-hoc signed).
