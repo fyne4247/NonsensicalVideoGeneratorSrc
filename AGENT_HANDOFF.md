@@ -144,3 +144,10 @@ No shared files between the two workers. No sequencing needed. Remote dirs are s
 
 ### Main checkout
 `git -C /Users/fish4247/Vibecoding/NonsensicalVideoGeneratorSrc status --short` empty after both reports. No stray writes.
+
+## Sol acceptance decision and owner VM approval — 2026-11-01
+- Accepted Opus's report as evidence that native porting is practical on both platforms; the full L1 acceptance gate is still incomplete because Windows regression, audible preview and normal UI click-through are unverified. No claim of finished native support or installers.
+- Owner explicitly approved starting the Windows 11 VM on 750 for the Windows build check, informed that startup stops Ollama to free memory and uses sudo. Sent authorization to Opus; preserve existing VM state and record final VM/Ollama state. No unrelated service changes authorized.
+- Asked Opus to coordinate Windows verification and bounded L2–L4 production work from the trial: remove experimental hooks/stubs, append DEBUG/TRACE constants, fix vocoder no-argument spin with a focused check, automate content/dependency staging, establish writable data roots, then installers. Reviewed integration only; no main merge until acceptance and checks pass.
+- Shared trial branches remain preserved and unmerged into the team as delivered features. No full-suite evidence exists beyond the builds reported by Opus; absence of a test project does not substitute for the remaining real UI/Windows validation.
+- NEXT ACTION: Opus coordinates the authorized Windows check and next bounded assignments; Sol awaits an actionable blocker or consolidated review and maintains this handoff. Nothing pushed/published/deployed.
