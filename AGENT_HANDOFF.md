@@ -373,3 +373,31 @@ Acceptance and tests:
 - Unrelated commit 306e0fc replaced the NVG handoff with an out-of-scope memory-consolidation plan. Confirmed only AGENT_HANDOFF.md changed and the working tree was clean before recovery.
 - Restored the complete NVG handoff from 4629962 as a new commit; retained 306e0fc in history. No external memory files read or changed for this recovery.
 - hard-5 worktree is unaffected per Opus; bundled-media installer work continues. Sol remains the designated handoff writer. NEXT ACTION: await Opus's hard-5 review; do not execute the unrelated plan in this project or overwrite this record.
+
+## Review — bundled media tools (Opus, 2026-11-01)
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-5 | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-5 | 1591e27 | APPROVE. Closed. One fix round: Linux runtime-library docs plus a non-failing `ldconfig` warning in `install-linux.sh`. |
+
+**Merge note:** hard-5 copied hard-4's `tools/package/**` and the three docs into its own commit (hard-4's branch isn't an ancestor). **Merge only hard-5; it supersedes hard-4 (6223094).** Merging both would give add/add conflicts.
+
+Bundled on both OSes:
+- FFmpeg n7.1.1 libs + CLI `ffmpeg`/`ffprobe` (`--enable-gpl --enable-libx264 --enable-frei0r`, GPL-3.0-or-later). x264 is b35605ac, static, GPL-2.0-or-later; Linux x86_64 is built `--disable-asm`, so it's slower.
+- frei0r v2.3.3 (GPL).
+- vocoder 3faed27; yt-dlp 2026.10.21; deno 2.9.8.
+- ImageMagick 7.1.2-34: on macOS a static source build with zlib/libpng/libjpeg-turbo; on Linux the official AppImage, which needs libfuse2.
+- `SOURCE_OFFER.txt` + `THIRD_PARTY.md` in each package.
+- `ToolPaths`: macOS also searches `/opt/homebrew/bin` and `/usr/local/bin` after PATH. The change is macOS-only.
+
+Evidence:
+- Worker-reported: DMG 171 MB, tarball 182 MB, built from clean outputs. From the installed packages, with PATH=/usr/bin:/bin and temp HOME/NVG_DATA_DIR, speed, frei0r nervous and frei0r colorize renders were h264+aac, and `magick` PNG→JPEG worked on both. `otool`/`ldd` clean. No Steam/SharpCompress/ZstdSharp. NvgMedia 10/10 on Mac and 750.
+- Opus trial merge `flow-test/flow-1101-0201-tools` (eda2f65 = team 0aad439 + hard-5, branch kept): no conflicts. Mac: NvgPlatform 13/13, NvgMedia 10/10, DesktopGL build 0 errors / 2 warnings, `sh -n` on all packaging/build scripts OK.
+- Windows VM: WindowsDX full build of eda2f65 gives 0 errors / 2 warnings. VM shut down; ollama still inactive (its prior state).
+
+Not verified / limits:
+- The tarball on 750 predates 1591e27 (only `install-linux.sh` changed), so rebuild it before handing it to anyone.
+- There's no headless generate path in the app, so normal generation through the UI needs the human GUI pass. CLI renders are the current evidence.
+- osx-x64 DMG not built. No notarisation (ad-hoc signed; Gatekeeper right-click → Open).
+- Linux ffmpeg relies on system libz/libbz2/liblzma/libasound (now documented and warned about).
+- A missing vocoder/yt-dlp/deno/frei0r shows a raw process or ffmpeg error rather than a friendly message. All are bundled now.
+- Still pending human/computer-use: picker, audible preview, file drop, clipboard, TTS on Mac and Linux; Windows interactive launch.
