@@ -21,6 +21,19 @@ namespace NonsensicalVideoGenerator
         private static List<Song> songs = new List<Song>();
         public static void LoadDefaultContent(ContentManager contentManager, GraphicsDevice graphicsDevice)
         {
+#if DESKTOPGL
+            // Name the playback device before the first SoundEffect opens OpenAL.
+            // OpenAL Soft follows the OS default. A different selected output is silent.
+            try
+            {
+                string? device = AudioDiagnostics.DefaultOutputDeviceName();
+                ConsoleOutput.WriteLine(AudioDiagnostics.FormatOutputNote(DataRoots.PlatformKind(), device), Color.Transparent);
+            }
+            catch (Exception ex)
+            {
+                ConsoleOutput.WriteLine("Audio output: " + ex.Message, Color.Red);
+            }
+#endif
             // Dispose all existing content.
             UnloadContent();
             // Load default sounds.
