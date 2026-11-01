@@ -40,7 +40,7 @@ public sealed class AppPathsTests
         }
     }
 
-    [Fact]
+    [PosixFact]
     public void Plugin_job_files_stay_under_the_data_root()
     {
         string repo = RepoRoot();

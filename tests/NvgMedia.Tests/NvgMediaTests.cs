@@ -257,7 +257,7 @@ public class ProcessTreeTests
         this.env = env;
     }
 
-    [Fact]
+    [PosixFact]
     public void CancelKillsOwnedSleepAndLeavesUnrelatedSleep()
     {
         Assert.Equal(env.Data, Environment.GetEnvironmentVariable("NVG_DATA_DIR"));
@@ -279,7 +279,7 @@ public class ProcessTreeTests
         }
     }
 
-    [Fact]
+    [PosixFact]
     public void VocoderNoArgReturnsWithinTimeout()
     {
         Assert.Equal(env.Home, Environment.GetEnvironmentVariable("HOME"));
@@ -324,7 +324,7 @@ public class ProcessTreeTests
         Assert.InRange(watch.Elapsed.TotalSeconds, 2, 8);
     }
 
-    [Fact]
+    [PosixFact]
     public void OnlyVocoderIsTimedOut()
     {
         Assert.Equal(TimeSpan.FromMinutes(10), ProcessTree.TimeoutFor("/opt/nvg/bin/vocoder"));

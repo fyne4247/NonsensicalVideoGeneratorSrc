@@ -53,7 +53,7 @@ public sealed class ShutdownSignalsTests
         Assert.Equal(2, calls);
     }
 
-    [Fact]
+    [PosixFact]
     public void Sigterm_reaches_the_registration_and_does_not_kill_the_process()
     {
         int calls = 0;

@@ -76,7 +76,8 @@ public sealed class DialogShellTests
         Assert.Contains("with multiple selections allowed", script);
         Assert.Contains("\"mp4\"", script);
         Assert.Contains("\"mkv\"", script);
-        Assert.Contains(dir, script);
+        // AppleScript quotes backslashes in a Windows host path; the argv stays one element.
+        Assert.Contains(dir.Replace("\\", "\\\\"), script);
         Assert.Contains("\\\"", script);
         Assert.NotNull(one);
         Assert.DoesNotContain("multiple selections", one.Value.Arguments[1]);
@@ -122,7 +123,7 @@ public sealed class DialogShellTests
         Assert.Equal(new[] { Path.GetFullPath(dir) }, linuxReveal.Arguments);
     }
 
-    [Fact]
+    [PosixFact]
     public void Missing_shell_helper_returns_without_waiting()
     {
         string? oldPath = Environment.GetEnvironmentVariable("PATH");

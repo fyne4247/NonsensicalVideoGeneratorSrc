@@ -25,7 +25,7 @@ public sealed class SpeechTests
         }
     }
 
-    [Fact]
+    [PosixFact]
     public void Speech_is_queued_and_cancel_stops_the_current_job()
     {
         var jobs = new List<FakeSpeech>();

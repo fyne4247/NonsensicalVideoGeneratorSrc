@@ -40,7 +40,7 @@ public sealed class DataRootsTests
         Assert.False(Directory.Exists(Path.Combine(box.Home, ".local", "share", "NonsensicalVideoGenerator")));
     }
 
-    [Fact]
+    [PosixFact]
     public void Apply_uses_the_override_and_leaves_the_real_profile_alone()
     {
         DateTime? macWrite = Directory.Exists(box.RealMacData) ? Directory.GetLastWriteTimeUtc(box.RealMacData) : null;
