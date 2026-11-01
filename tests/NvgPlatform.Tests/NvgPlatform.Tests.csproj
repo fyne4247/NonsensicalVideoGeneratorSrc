@@ -18,6 +18,7 @@
     `dotnet test` covers them on macOS and Linux. The game build is a separate step.
   -->
   <ItemGroup>
+    <Compile Include="..\..\src\backend\platform\AudioOutputFollower.cs" Link="platform\AudioOutputFollower.cs" />
     <Compile Include="..\..\src\backend\platform\AppPaths.cs" Link="platform\AppPaths.cs" />
     <Compile Include="..\..\src\backend\platform\DataRoots.cs" Link="platform\DataRoots.cs" />
     <Compile Include="..\..\src\backend\platform\NativeCommand.cs" Link="platform\NativeCommand.cs" />
