@@ -256,19 +256,70 @@ public sealed class AudioOutputFollowerTests
     }
 
     [Theory]
-    [InlineData(null, true, false, true)]
-    [InlineData("", true, false, true)]
-    [InlineData("0", true, false, false)]
-    [InlineData("false", true, false, false)]
-    [InlineData(null, false, true, false)]
-    [InlineData("1", false, true, true)]
-    [InlineData("true", false, true, true)]
-    [InlineData("0", false, true, false)]
-    [InlineData("1", false, false, false)]
-    [InlineData(null, false, false, false)]
-    public void ShouldRun_matrix(string? setting, bool mac, bool linux, bool expected)
+    [InlineData(null, true, true)]
+    [InlineData("", true, true)]
+    [InlineData("1", true, true)]
+    [InlineData("0", true, false)]
+    [InlineData("false", true, false)]
+    [InlineData(null, false, false)]
+    [InlineData("1", false, false)]
+    public void ShouldRun_matrix(string? setting, bool mac, bool expected)
     {
-        Assert.Equal(expected, AudioOutputFollower.ShouldRun(setting, mac, linux));
+        Assert.Equal(expected, AudioOutputFollower.ShouldRun(setting, mac));
+    }
+
+    [Fact]
+    public void Prepare_writes_one_line_config_and_sets_ALSOFT_CONF_on_linux()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "nvg-alsoft-" + Guid.NewGuid().ToString("n"), "a b");
+        try
+        {
+            var env = new Dictionary<string, string>();
+            string? path = AudioOutputFollower.Prepare(dir, true, k => null, (k, v) => env[k] = v);
+            Assert.Equal(Path.Combine(dir, "alsoft.conf"), path);
+            Assert.Equal(path, env["ALSOFT_CONF"]);
+            Assert.Equal(AudioOutputFollower.LinuxConfigText, File.ReadAllText(path!));
+            Assert.Contains("allow-moves=true", File.ReadAllText(path!));
+            // Second call over an edited file restores the text and does not fail.
+            File.WriteAllText(path!, "junk");
+            Assert.Equal(path, AudioOutputFollower.Prepare(dir, true, k => null, (k, v) => env[k] = v));
+            Assert.Equal(AudioOutputFollower.LinuxConfigText, File.ReadAllText(path!));
+        }
+        finally
+        {
+            string? parent = Path.GetDirectoryName(dir);
+            if (parent != null && parent.StartsWith(Path.GetTempPath(), StringComparison.Ordinal) && Directory.Exists(parent))
+                Directory.Delete(parent, true);
+        }
+    }
+
+    [Fact]
+    public void Prepare_leaves_user_config_off_switch_and_other_platforms_alone()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "nvg-alsoft-" + Guid.NewGuid().ToString("n"));
+        var env = new Dictionary<string, string>();
+        Assert.Null(AudioOutputFollower.Prepare(dir, true, k => k == "ALSOFT_CONF" ? "/home/u/my.conf" : null, (k, v) => env[k] = v));
+        Assert.Null(AudioOutputFollower.Prepare(dir, true, k => k == "NVG_AUDIO_FOLLOW" ? "0" : null, (k, v) => env[k] = v));
+        Assert.Null(AudioOutputFollower.Prepare(dir, false, k => null, (k, v) => env[k] = v));
+        Assert.Empty(env);
+        Assert.False(Directory.Exists(dir));
+    }
+
+    [Fact]
+    public void Prepare_does_not_throw_when_the_directory_cannot_be_created()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var env = new Dictionary<string, string>();
+            // A path below a regular file can never be created.
+            Assert.Null(AudioOutputFollower.Prepare(Path.Combine(file, "sub"), true, k => null, (k, v) => env[k] = v));
+            Assert.Empty(env);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
     }
 
     /// <summary>

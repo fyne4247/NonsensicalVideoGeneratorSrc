@@ -27,13 +27,20 @@ namespace NonsensicalVideoGenerator
     }
 
     /// <summary>
-    /// Makes game audio follow the system output on macOS (and Linux if enabled).
-    /// OpenAL Soft binds to the default device it saw at launch and never rebinds on its own,
+    /// Makes game audio follow the system output on macOS and Linux.
+    ///
+    /// macOS: OpenAL Soft binds to the default device it saw at launch and never rebinds on its own,
     /// in 1.22 and in current releases. Windows uses XAudio and is untouched. The bundled 1.22
     /// has alcReopenDeviceSOFT, which moves the device to another output while keeping every
     /// buffer, source and the context, so no SoundEffect or Song is re-created.
     /// A timer polls the default output name about once a second and reopens on a change.
     /// A failed reopen backs off and is retried; it never throws into the game.
+    ///
+    /// Linux: the bundled libopenal is 1.17.1, which has no reopen. Its PulseAudio backend
+    /// pins the stream to the sink it started on (allow-moves defaults to false). With
+    /// [pulse] allow-moves=true the server moves the stream when the default sink changes,
+    /// so <see cref="Prepare"/> only points ALSOFT_CONF at a one-line config. The poller is
+    /// never started there.
     /// </summary>
     public sealed class AudioOutputFollower : IDisposable
     {
@@ -72,7 +79,6 @@ namespace NonsensicalVideoGenerator
         /// Starts following the system output. Call once after the audio device exists, for
         /// example after the menu music has started. Safe to call again. Returns false when
         /// following is not used on this OS or is turned off with NVG_AUDIO_FOLLOW=0.
-        /// NVG_AUDIO_FOLLOW=1 also enables it on Linux.
         /// </summary>
         public static bool Start()
         {
@@ -80,8 +86,7 @@ namespace NonsensicalVideoGenerator
             {
                 if (instance != null)
                     return true;
-                if (!ShouldRun(Environment.GetEnvironmentVariable("NVG_AUDIO_FOLLOW"),
-                    OperatingSystem.IsMacOS(), OperatingSystem.IsLinux()))
+                if (!ShouldRun(Environment.GetEnvironmentVariable("NVG_AUDIO_FOLLOW"), OperatingSystem.IsMacOS()))
                     return false;
                 var follower = new AudioOutputFollower(new OpenAlApi());
                 follower.StartTimer();
@@ -99,14 +104,64 @@ namespace NonsensicalVideoGenerator
             }
         }
 
-        public static bool ShouldRun(string? setting, bool isMac, bool isLinux)
+        /// <summary>The poller only runs on macOS, and NVG_AUDIO_FOLLOW=0 turns it off.</summary>
+        public static bool ShouldRun(string? setting, bool isMac)
         {
             string value = (setting ?? "").Trim();
             if (value == "0" || value.Equals("false", StringComparison.OrdinalIgnoreCase))
                 return false;
-            if (isMac)
-                return true;
-            return isLinux && (value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase));
+            return isMac;
+        }
+
+        /// <summary>
+        /// Linux only: makes OpenAL's PulseAudio stream movable so it follows the default sink.
+        /// Call once before any audio is created (OpenAL reads its config at first use).
+        /// Writes <c>alsoft.conf</c> into <paramref name="configDir"/> and points ALSOFT_CONF at
+        /// it unless ALSOFT_CONF is already set, which is left alone. Returns the file written,
+        /// or null when nothing was done. NVG_AUDIO_FOLLOW=0 skips it. Never throws.
+        /// </summary>
+        public static string? Prepare(string configDir)
+        {
+            return Prepare(configDir, OperatingSystem.IsLinux(), Environment.GetEnvironmentVariable,
+                SetProcessEnvironment);
+        }
+
+        public const string LinuxConfigText = "[pulse]\nallow-moves=true\n";
+
+        public static string? Prepare(string configDir, bool isLinux, Func<string, string?> getEnv,
+            Action<string, string> setEnv)
+        {
+            try
+            {
+                if (!isLinux)
+                    return null;
+                string flag = (getEnv("NVG_AUDIO_FOLLOW") ?? "").Trim();
+                if (flag == "0" || flag.Equals("false", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                if (!string.IsNullOrWhiteSpace(getEnv("ALSOFT_CONF")))
+                    return null;
+                Directory.CreateDirectory(configDir);
+                string path = Path.Combine(configDir, "alsoft.conf");
+                if (!File.Exists(path) || File.ReadAllText(path) != LinuxConfigText)
+                    File.WriteAllText(path, LinuxConfigText);
+                setEnv("ALSOFT_CONF", path);
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Audio output follow setup failed: " + ex.GetType().Name + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        [DllImport("libc", EntryPoint = "setenv")]
+        static extern int SetEnvNative(string name, string value, int overwrite);
+
+        // Environment.SetEnvironmentVariable on Unix only changes .NET's copy; OpenAL reads getenv.
+        static void SetProcessEnvironment(string name, string value)
+        {
+            Environment.SetEnvironmentVariable(name, value);
+            SetEnvNative(name, value, 1);
         }
 
         public void StartTimer()
