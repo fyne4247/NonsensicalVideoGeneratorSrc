@@ -39,3 +39,10 @@ Do not treat upstream Ubuntu testing claims or static source inspection as live 
 
 ## NEXT ACTION
 When implementation begins, verify `ssh 750` connectivity after boot, inspect OS/architecture/tool/desktop baseline, then execute the shared native S1/L1 experiment with separate outputs and no publication. Record launch, thumbnail, audio preview and stock-effect MP4 evidence on both systems before choosing full native implementation or wrapper fallback. Build installers only after verified runtime and data-root work. Planning is complete, committed on team branch; no main merge because the broader port remains unimplemented. Nothing pushed or deployed.
+
+## Resume check — 2026-11-01
+- Owner requests reopening Opus and confirms `ssh 750` should be online.
+- Read-only SSH now succeeds: Linux Mint 22.3 (Zena), Ubuntu noble base, x86_64, kernel 7.0.0-42-generic. `/usr/bin/ffmpeg` and `/usr/bin/zenity` are on PATH; dotnet, wine and kdialog were not found on the noninteractive SSH PATH. DISPLAY and WAYLAND_DISPLAY are unset in that SSH session; this does not prove no local desktop session exists.
+- No remote files changed, no packages installed, no build/run attempted.
+- Opus was closed at the end of the planning assignment. Sol's role explicitly prohibits creating a replacement Opus; owner must reopen Fish Flow and press r to restore it. No agent was spawned.
+- NEXT ACTION: Restore Opus through Fish Flow, then send the saved plans, this Linux baseline and the owner request. Continue at the shared feasibility-trial gate rather than redoing planning.
