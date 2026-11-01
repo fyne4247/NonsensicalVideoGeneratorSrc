@@ -45,9 +45,9 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
   <PropertyGroup Condition="'$(NvgPlatform)' == 'DesktopGL'">
     <EnableWindowsTargeting>false</EnableWindowsTargeting>
     <OutputType>Exe</OutputType>
-    <!-- Append so the SDK's DEBUG configuration define and TRACE both stay. Do not keep WINDOWSDX. -->
-    <DefineConstants>TRACE</DefineConstants>
-    <DefineConstants>$(DefineConstants);DESKTOPGL</DefineConstants>
+    <!-- Preserve project-defined constants; the SDK adds DEBUG for Debug builds later.
+         A command-line DefineConstants is a global override and must include DESKTOPGL itself. -->
+    <DefineConstants>$(DefineConstants);TRACE;DESKTOPGL</DefineConstants>
     <DefineConstants Condition="'$(NvgSteam)' == 'true'">$(DefineConstants);NVG_STEAM</DefineConstants>
     <UseWindowsForms>false</UseWindowsForms>
     <TargetFramework>net8.0</TargetFramework>
