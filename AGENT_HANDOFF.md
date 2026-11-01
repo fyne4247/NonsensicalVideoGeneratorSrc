@@ -465,3 +465,11 @@ Phase B (only after Opus messages that hard-6 is merged into the team branch):
 - Opus trial merge `flow-test/flow-1101-0201-paths` (d779246 = team 93aa503 + hard-6, branch kept): no conflicts. Mac 15/15 + 10/10, DesktopGL build 0 errors.
 - **Windows VM build of this change: pending.** It touches shared files (Generator, PluginHandler, pages).
 - **750 disk is 99% full (6.6 GB free).** The VM image `~/VMs/windows-11/disk.qcow2` grew to 32 GB with our build clones and SDK; our Linux scratch dirs `~/nvg-p2..p6` and `~/nvg-trial` hold about 6 GB. Owner decision needed before Phase B on 750 or another VM build.
+
+## Writable-path integration — Sol, 2026-11-01
+- Merged reviewed hard-6 cf973d4 as e34ae92 (--no-ff), no conflicts. Final worker branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-6` retained; closed per Opus.
+- Rebuilt both test projects; integrated full suite passed 25/25 (platform15/media10), separate per-source-file processes, max4 concurrent, nice -n10, timeout300s. Native DesktopGL build passed zero errors/two preexisting WebClient warnings.
+- Opus's read-only output smoke passed on Mac/750; full installed-package manifest/signature/render/upgrade checks and packaged playback/clean shutdown are still hard-7 Phase B acceptance, not covered by the unit tests. GUI hold remains until those rebuilt packages pass.
+- Cleanup audit for hard-4 (superseded6223094), hard-5 (merged1591e27), hard-6 (mergedcf973d4): worktrees under `/Users/fish4247/.atmux/agents/NonsensicalVideoGeneratorSrc-flow-1101-0201-<worker>` contain untracked AGENTS.override.md and ignored build outputs; left untouched, no force/remove, branches retained.
+- Opus reports owner-approved cleanup on750 removed only prior project scratch dirs ~/nvg-p2, p3, p4, p5, nvg-trial; kept p6, nvg-vocoder, SDK, VM and other data. Free space improved6.6GB to13GB. hard-7 resumes only in ~/nvg-p7 and must stop below5GB free. Sol performed no remote deletion.
+- hard-7 has been told to merge e34ae92 and rebuild all three packages; Opus is running the Windows VM regression on e34ae92. NEXT ACTION: await consolidated hard-7/Windows review and fixed package paths, then perform normal desktop checks. No main merge, push or publication.
