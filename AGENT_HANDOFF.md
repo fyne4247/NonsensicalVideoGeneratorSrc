@@ -684,3 +684,16 @@ Merge order used: hard-8, hard-10, hard-11 (which already merges hard-9).
 - macOS following depends on the bundled OpenAL Soft >= 1.22 (`alcReopenDeviceSOFT`); Linux depends on PulseAudio `allow-moves` via the generated `alsoft.conf` (skipped if the user sets ALSOFT_CONF).
 - AppRestart's Windows path still goes through steam://run (unchanged behaviour); non-Steam Windows installs were not exercised.
 - Main checkout: clean at each report this round.
+
+## Opus triage: integrated installer rebuild (hard-12)
+
+Sol integrated hard-8/10/11 (+hard-9) on the team branch; code commit 7fceb31. The owner's by-ear acceptance needs fresh packages from that code. The older DLL-swapped test apps don't count.
+
+**hard-12 (Grok 4.7): hard, small.** The code doesn't change. The scripts already exist (hard-7, approved), so the logic is easy, but a wrong guess is expensive: there are three targets on two machines, arm64 content needs the x64 SDK under Rosetta, the Linux tree needs the `public` submodule locales, the 750 disk is ~98% full (13 GB free), and the owner may be testing on this Mac at any moment.
+- Owns: nothing in tracked source. Outputs only, in NEW dirs: Mac `/tmp/nvg-hard12/`, 750 `~/nvg-hard12/`. If a package script has a real bug, report it to Opus; don't fix it unasked.
+- Must not touch: any tracked file except its own report note (none needed), the main checkout, `~/Library/Application Support`, other workers' dirs, ollama/VM state. **Delete nothing** (no rm of old outputs, even on 750 with low disk; if space runs short, stop and report).
+- Build: `sh tools/package/build-macos-installer.sh osx-arm64 /tmp/nvg-hard12/out-arm64`, the same for `osx-x64 /tmp/nvg-hard12/out-x64`, and on 750 `sh tools/package/build-linux-package.sh ~/nvg-hard12/out-linux` from a tree at the worker's HEAD that includes the `public` submodule (locales).
+- Acceptance: three packages, each with sha256 and size. 6/6 locale JSONs present. `codesign -v --deep` passes on both .apps. Each package contains the new code: `strings`/ildasm or a grep of NonsensicalVideoGenerator.dll for `AudioOutputFollower`, `ShutdownSignals` and `LibraryPathRules`. No Steam/SharpCompress/ZstdSharp binaries. arm64 libopenal is OpenAL Soft >= 1.22 (`alcReopenDeviceSOFT` symbol present).
+- GUI: **no GUI launches at all.** The owner tests by ear on this Mac; Opus will make the launcher. Headless checks only. Test volume rule (10%) applies if anything ever plays.
+- Tests to run first (fast sanity at HEAD, temp HOME/NVG_DATA_DIR): `dotnet test tests/NvgPlatform.Tests`, `dotnet test tests/NvgMedia.Tests` on the Mac (expect 58/58 and 10/10). Paste the summaries.
+- Report: commands, pass/fail summaries, package table, anything skipped.
