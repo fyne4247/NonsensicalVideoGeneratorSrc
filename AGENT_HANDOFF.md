@@ -110,3 +110,37 @@ No shared files between the two workers. No sequencing needed. Remote dirs are s
 ## Owner-requested status check — 2026-11-01
 - Owner asks to continue and whether hard-1 is still working. One direct atmux status/capture check reports pane alive and shows active Thinking output around Sdcb.FFmpeg RootPath/resolver handling; no completion report received. This is observed session state, not proof of a passing build or runtime.
 - Sent owner continuation instruction to Opus. Do not restart or duplicate the worker. NEXT ACTION: await Opus's consolidated review or an actionable blocker.
+
+## Review — S1/L1 + S2 (Opus, 2026-11-01)
+**Gate result: PASS for feasibility, with gaps listed below.** This is a trial result, not a finished port or installer. All shims on hard-1 are experimental.
+
+### Worker branches
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| easy-1 (S2 vocoder) | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-easy-1 | 346a6f9 | APPROVE. Closed. Fix at integration: NOTES.md says 750 is "Ubuntu 24.04"; it is Linux Mint 22.3 (noble base). |
+| hard-1 (S1/L1 trial) | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-1 | e8f398c | APPROVE as trial evidence. Do not merge as delivered features. Closed. |
+
+### What hard-1 showed (details in TRIAL_S1_L1.md on its branch)
+- Mac arm64 and Linux x64 (750, X11 session :0 already logged in): window up ≥30 s with fonts and locales, fixture import + thumbnail (`BmpThumbnail`, no System.Drawing), Extended.VideoPlayback reached `Playing`, `speed.lua` rendered an MP4 that ffprobe reads as h264+aac, Steam off and DiscordRPC both clean at startup.
+- No renderer or video-stack rewrite needed. Every fix was localized:
+  - The arm64 MGCB can't load FreeImage/freetype, so content was built with an x64 SDK (`~/.dotnet-nvg-x64`) under Rosetta.
+  - Steamworks.NET, Extended2 and VideoPlayback are IL-only but marked AMD64. `retarget-ilonly.py` patches only the build-output copies, never `packages/`.
+  - Sdcb.FFmpeg already has its own resolver. FFmpeg 7 libs get staged next to the app (`~/nvg-trial/ffmpeg7` on 750, built from source; Homebrew ffmpeg@7 on the Mac).
+- Vocoder: DesktopGL resolves `bin/vocoder` and closes stdin. A bad flag exits in 0.1 s. **With no arguments it still spins** (the vocoder treats EOF as an empty answer). The stock plugin always passes arguments. A real fix is a per-command timeout or a small upstream patch, recorded under L3.
+
+### Trial merge (`flow-test/flow-1101-0201` = team 8e1af0f + easy-1 + hard-1)
+- Conflicts: none.
+- `dotnet build -p:NvgPlatform=DesktopGL -p:NvgSkipMgcb=true` (separate obj): 0 errors, 4 warnings (obsolete WebClient, pre-existing).
+- `tools/vocoder/build-vocoder.sh` from a clean scratch dir: builds.
+- No test project exists, so there's no other suite to run.
+
+### Not verified, or might not work
+1. **Windows default build regression is NOT verified.** WindowsDX can't build on macOS (MGCB natives are x86-only). hard-1 changed shared files under `#if`, and `LibraryPage.cs` now calls `System.Windows.Clipboard` explicitly. The plan's gate requires the Windows build still building. Candidate: the owner's Windows 11 VM on 750 (`ssh 750 'ssh win11 ...'`), which needs a VM start (it stops ollama with sudo, 6 GB RAM). That needs owner go-ahead.
+2. **Audio during preview was not heard.** The player reached `Playing`, but nobody listened. The UI path (Library → Add → picker → click holder) was driven only by the `-trial` code hook, not by clicks. This needs a human/computer-use check on both OSes.
+3. The csproj DesktopGL block sets `DefineConstants=DESKTOPGL`, which overwrites DEBUG/TRACE; real work should append to them. `NVG_STEAM` + DesktopGL can't compile yet (Steamworks reference excluded), which is fine for the community build.
+4. Untracked build dirs (`bin/`, `obj-desktopgl*/`) need `.gitignore` entries. The linux-x64 publish needed manual copies of content/plugins/locales and a `libavcodec.so.61.so` alias name next to the app (an app-local file, not a system alias). Packaging (L4) has to automate this.
+5. The Linux render used system ffmpeg 6.1 CLI. In-process playback used the app-local 7.1 libs. Mixing the two works but needs a decision for installers.
+6. The `-trial` and `-vocoder-stdin` hooks in Program.cs/TrialGate.cs are trial-only and should not ship.
+
+### Main checkout
+`git -C /Users/fish4247/Vibecoding/NonsensicalVideoGeneratorSrc status --short` empty after both reports. No stray writes.
