@@ -6,8 +6,9 @@ using System.Threading;
 namespace NonsensicalVideoGenerator
 {
     /// <summary>
-    /// DesktopGL: SIGTERM and SIGINT request a normal game exit and cancel
-    /// the runtime's default termination.
+    /// DesktopGL: the first SIGTERM or SIGINT requests a normal game exit and
+    /// cancels the runtime's default termination. A later signal is not
+    /// cancelled, so a hung game loop can still be stopped with SIGTERM or Ctrl+C.
     /// CoreCLR's SIGTERM handler calls exit while MonoGame's OpenAL device is
     /// still open. OpenAL Soft's atexit cleanup then locks a std::recursive_mutex.
     /// Under Rosetta that lock returns EINVAL and libc++ aborts the process.
@@ -47,16 +48,20 @@ namespace NonsensicalVideoGenerator
         }
 
         /// <summary>
-        /// Cancel default termination. <paramref name="exit"/> runs once.
-        /// A later signal stays canceled and does not call it again.
+        /// The first call cancels default termination and runs <paramref name="exit"/> once.
+        /// A later call leaves <see cref="PosixSignalContext.Cancel"/> false, so the
+        /// runtime's default termination runs, and does not call <paramref name="exit"/> again.
         /// If <paramref name="exit"/> throws, the one-shot gate reopens so a
         /// second signal can retry, and the exception does not escape.
         /// </summary>
         public static bool Handle(PosixSignalContext context, ref int onceGate, Action exit)
         {
-            context.Cancel = true;
             if (Interlocked.CompareExchange(ref onceGate, 1, 0) != 0)
+            {
+                context.Cancel = false;
                 return false;
+            }
+            context.Cancel = true;
             try
             {
                 exit();

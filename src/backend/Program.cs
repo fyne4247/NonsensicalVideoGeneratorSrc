@@ -152,11 +152,17 @@ namespace NonsensicalVideoGenerator
             using (var game = new UserInterface())
             {
 #if DESKTOPGL
-                // Before SDL_Init. CoreCLR already owns SIGTERM; cancel that
-                // forced exit and let UnloadContent close OpenAL first.
+                // Before SDL_Init. CoreCLR already owns SIGTERM. The first
+                // signal cancels that forced exit so UnloadContent can close
+                // OpenAL. A later signal is left to the runtime.
                 ShutdownSignals.Register(game.Exit);
 #endif
                 game.Run();
+#if DESKTOPGL
+                // Drop the handler before dispose and SaveData.Save. A signal
+                // after this must not call Exit on a disposed game.
+                ShutdownSignals.Unregister();
+#endif
             }
             // On graceful exit, save the game data
             SaveData.Save();

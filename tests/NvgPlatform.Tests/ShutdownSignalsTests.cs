@@ -17,7 +17,7 @@ public sealed class ShutdownSignalsTests
         Assert.True(ShutdownSignals.Handle(term, ref once, () => calls++));
         Assert.True(term.Cancel);
         Assert.False(ShutdownSignals.Handle(intr, ref once, () => calls++));
-        Assert.True(intr.Cancel);
+        Assert.False(intr.Cancel);
         Assert.Equal(1, calls);
         Assert.Equal(1, once);
     }
@@ -68,13 +68,8 @@ public sealed class ShutdownSignalsTests
             Assert.Equal(0, Kill(Environment.ProcessId, SigTerm));
             Assert.True(saw.Wait(TimeSpan.FromSeconds(5)), "SIGTERM handler did not run");
             Assert.Equal(1, Volatile.Read(ref calls));
-
-            Assert.Equal(0, Kill(Environment.ProcessId, SigTerm));
-            var slept = Environment.TickCount64;
-            Thread.Sleep(300);
-            var woke = Environment.TickCount64 - slept;
-            Assert.True(woke >= 250, "process did not stay up after the second SIGTERM (" + woke + "ms)");
-            Assert.Equal(1, Volatile.Read(ref calls));
+            // A second live SIGTERM is not cancelled and would kill this test
+            // process. Handle() covers that case with a synthetic context.
         }
         finally
         {
