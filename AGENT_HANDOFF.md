@@ -51,3 +51,50 @@ When implementation begins, verify `ssh 750` connectivity after boot, inspect OS
 - Received runtime notice that flow-1101-0201-opus has been restarted. Sent the saved plans, reviewed checkpoints, owner installer/distribution constraints and successful Linux SSH baseline to that existing agent. Delivery accepted by atmux.
 - Requested a concrete next feasibility-trial assignment/staffing recommendation, without redoing planning. Reply pending; no implementation assigned by Sol.
 - NEXT ACTION: Handle Opus's substantive reply at the shared native trial gate. Keep Opus available as requested by the owner.
+
+## Triage — shared native feasibility trial (Opus, 2026-11-01)
+Sol stays the handoff writer. This section only holds Opus's triage and worker assignments.
+Main checkout `/Users/fish4247/Vibecoding/NonsensicalVideoGeneratorSrc` was clean (`git status --short` empty) when the trial started. Each worker report gets checked against this.
+
+**Scope of this round:** only S1/L1 (gate) and S2 (vocoder). L2–L5, installers and docs wait until the gate result is in. The trial branch is **experimental**: temporary stubs/shims must not be merged into the team branch as delivered features. Sol decides what, if anything, gets kept after the review.
+
+**Staffing:** mixed, 1 hard + 1 easy.
+- S1/L1 is **hard and widespread**: it touches the build system, the native ABI (FFmpeg 7 dylib/.so resolution), vendored video playback, content pipeline and several call sites, on two OSes. If it guesses wrong, everything after it is planned on bad data. One worker does it so the Mac and Linux runs share one build switch and one platform layer.
+- S2 is **easy and small**: building a plain C program from source plus a sample run. It shares no files with S1 and runs in parallel.
+
+### flow-1101-0201-hard-1 — S1/L1 shared native trial (Grok 4.7, high)
+Owns (on its own branch only):
+- `NonsensicalVideoGenerator.csproj` (add `NvgPlatform=DesktopGL` switch; the default build must stay exactly WindowsDX)
+- `content/Content.mgcb` read-only; new `content/Content.DesktopGL.mgcb` (or a MonoGamePlatform override) with a separate output dir
+- `src/backend/platform/*` (new), `src/backend/{Program,Generator,UserInterface,Accessibility,Global}.cs`, `src/data/{SteamManager,PluginHandler,LibraryData,FramePlayer}.cs`, `src/interactables/TextInput.cs`, `src/pages/{LibraryPage,PluginsPage}.cs`: only the minimum each needs to compile and run under DesktopGL (`#if` guards / stubs)
+- `baseplugins/user/stock/rave.lua` (path separators only)
+- `TRIAL_S1_L1.md` (new): the trial report
+Must not touch: `AGENT_HANDOFF.md`, `PLAN_*.md`, `publish.*`, `steamcmd*.vdf`, `proton.sh`, `start.sh`, `install-dotnet-sdk-in-proton.sh`, `LINUX_BUILD_INSTRUCTIONS.md`, `README.md`, `packages/**` (it may add new vendored files under `packages/Steamworks.NET/OSX-Linux-x64/` only if Steam init is tested; otherwise leave Steam off with `NVG_STEAM` unset), anything in the main checkout.
+Environment rules:
+- .NET 8 SDK user-local only via Microsoft's `dotnet-install.sh` into `~/.dotnet-nvg` (Mac and `ssh 750`). No sudo, no apt, no Homebrew installs/upgrades/uninstalls. Use the already-installed keg-only `ffmpeg@7` on the Mac.
+- `ssh 750`: work only inside `~/nvg-trial/`. FFmpeg 7.1 shared libs get built from source into `~/nvg-trial/ffmpeg7/` (`--disable-x86asm` if nasm is missing). If a build needs a system package, stop and report the package name. Never symlink or alias system libraries.
+- Linux GUI: check for a logged-in graphical session read-only first (`loginctl list-sessions`, `loginctl show-session <id> -p Type -p Display`). If one exists, launch with that `DISPLAY`/`XAUTHORITY` or `WAYLAND_DISPLAY`. If none exists, stop and report so the owner can log in. Don't start a display server.
+- No pushes, publish/upload, Steam account actions, paid tools, or deleting anything outside the worker's own trial dirs.
+Steps:
+1. Mac (arm64): build the default config first and record whether it still builds on macOS (expected: WindowsDX needs Windows, so record the exact error; a no-op is fine). Then add the DesktopGL switch, build content for DesktopGL, register a `NativeLibrary.SetDllImportResolver` for Sdcb.FFmpeg + Extended.VideoPlayback (mac `lib<name>.<major>.dylib`, Linux `lib<name>.so.<major>`), replace the `System.Drawing.Bitmap` thumbnail decode at `src/pages/LibraryPage.cs:504` on the DesktopGL path, init the `public` submodule in its own worktree for locales.
+2. Dependency audit: for MonoGame.Extended2, Extended.VideoPlayback, MoonSharp, Sdcb.FFmpeg, Steamworks.NET, DiscordRichPresence record target framework, CPU arch (corflags-equivalent / PE header + IL-only flag), and P/Invoke native names.
+3. Run gate on Mac, then repeat on `ssh 750` (publish `linux-x64` self-contained, copy it to `~/nvg-trial/`).
+Acceptance (per OS, pass/fail each, with evidence: log excerpts, file paths, `ffprobe` output, screenshots via `screencapture` / `import -window root` where possible):
+- app window opens and stays up ≥30 s, content + fonts + locales load (stdout/stderr log clean of exceptions)
+- import one local audio/video fixture; thumbnail generated
+- preview plays with audio through vendored Extended.VideoPlayback (if this needs window focus/interaction, mark "needs GUI check" and say exactly what to click)
+- one short stock-effect render produces an MP4 that `ffprobe` reads with video+audio streams
+- DiscordRPC and Steam-off path don't throw at startup
+Decision-gate input: for anything that fails, say whether the fix is localized or needs a renderer/video-stack rewrite (PLAN_LINUX.md L1 decision gate).
+Tests: no test project exists. Headless checks: `dotnet build -p:NvgPlatform=DesktopGL` (Mac and Linux), resolver smoke (load `avcodec-61` through the resolver in a tiny console check or at startup with a logged result), `ffprobe` on the render. GUI launches go **last** and run one at a time (no other worker opens windows). Background processes can't take focus on macOS: if a check fails waiting for focus, don't retry; list it under "needs owner/computer-use GUI check".
+Report: commit on its branch, then message Opus with the branch, final commit, the commands it ran and their pass/fail summary.
+
+### flow-1101-0201-easy-1 — S2 native vocoder build (Mistral Vibe)
+Owns: `tools/vocoder/` (new): `build-vocoder.sh` (fetch borsboom/vocoder at a pinned commit into a scratch dir, build with the system C compiler, output to a given dir) and `tools/vocoder/NOTES.md` (commit hash, compiler, warnings, sample run result, licence of upstream).
+Must not touch: anything outside `tools/vocoder/`; the main checkout; any system packages (no sudo/apt/brew).
+Steps: build and run on the Mac, then on `ssh 750` inside `~/nvg-vocoder/` only. Sample run: generate two short WAVs with ffmpeg (`sine` + `anoisesrc`), run the vocoder on them, check the output with `ffprobe`. Check how `src/backend/Generator.cs` / `src/data/PluginHandler.cs` call `vocoder.exe` (read-only) and write the exact arguments it passes into NOTES.md, then run the native build with those same arguments.
+Acceptance: script builds on both hosts from a clean scratch dir; output WAV is valid per `ffprobe`; NOTES.md records commands run and pass/fail. If no C compiler on `750`, record that and stop for that host.
+Dependencies: none. Runs in parallel with hard-1.
+
+### Overlap
+No shared files between the two workers. No sequencing needed. Remote dirs are separate (`~/nvg-trial/` vs `~/nvg-vocoder/`).
