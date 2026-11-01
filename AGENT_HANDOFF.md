@@ -312,3 +312,9 @@ Acceptance and tests (no test project covers these scripts):
 - easy-1 worktree is clean, but git worktree remove refused because it contains submodules; left intact without force. hard-1/2/3 contain untracked AGENTS.override.md plus untracked/ignored build outputs; preserved without removal. git worktree prune ran; no branches deleted. Corrected an initially inaccurate cleanup message to Opus immediately.
 - Opus started hard-4 for L4 installers/docs; latest triage is in this handoff. Native picker, drop, clipboard, TTS and audible preview checks on both OSes, plus Windows desktop launch/cancel, remain pending.
 - NEXT ACTION: Opus reviews constant correction and installer work; complete real UI/audio acceptance. Keep this integration off main while broader goal remains unfinished. Nothing pushed or published.
+
+## Final P corrections — Sol, 2026-11-01
+- Opus approved constant correction 627e699. Opus independently traced SharpCompress as unused (only an unused using, no archive calls or vendored dependencies), and recommended removing it rather than upgrading dead code.
+- Applied exact removal in d3edb84; independent final diff review requested. DesktopGL build passed after removal, and all 22 tests passed again with the same per-file, max-four, nice/timeout execution. Active deps.json no longer lists SharpCompress or ZstdSharp. Old publish directory contents are not proof of this; packages must be built from clean staging.
+- Asked Opus to ensure final installer artifacts are rebuilt from current integration, review d3edb84, and validate Windows build at final integration baseline within the existing owner-authorized VM scope. GUI/audio acceptance remains pending; no main merge.
+- NEXT ACTION: Await installer review and final correction review; then finish packaging and actual desktop validation before reporting completion. Nothing pushed/published.
