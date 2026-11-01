@@ -215,7 +215,8 @@ namespace NonsensicalVideoGenerator
                     // Validate subType
                     foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
                     {
-                        if (pair.Value == rootType + "\\" + subType)
+                        // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                        if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                         {
                             dummyType = pair.Key;
                             break;
@@ -644,7 +645,8 @@ namespace NonsensicalVideoGenerator
             // Validate subType
             foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
             {
-                if (pair.Value == rootType + "\\" + subType)
+                // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                 {
                     dummyType = pair.Key;
                     break;
@@ -674,7 +676,8 @@ namespace NonsensicalVideoGenerator
                 placeholders.Remove(placeholderKey);
             }
             string thepath = Path.Join("..", "..", file);
-            if (thepath != "..\\..")
+            // Empty pick is "..\.." on Windows and "../.." on macOS and Linux.
+            if (!LibraryPathRules.IsEmptyLibraryPick(file, thepath))
             {
                 ConsoleOutput.WriteLine(placeholderKey + " -> " + thepath);
                 placeholders.Add(placeholderKey, thepath);
@@ -724,7 +727,8 @@ namespace NonsensicalVideoGenerator
             // Validate subType
             foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
             {
-                if (pair.Value == rootType + "\\" + subType)
+                // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                 {
                     dummyType = pair.Key;
                     break;
@@ -1875,6 +1879,15 @@ namespace NonsensicalVideoGenerator
                 GlobalContent.PlaySound("Error");
                 return false;
             }
+#if DESKTOPGL
+            // Launch switch for a temp-data generation with no window input.
+            // Unset, this does nothing. WindowsDX does not compile this block.
+            if (Environment.GetEnvironmentVariable("NVG_AUTO_GENERATE") == "1")
+            {
+                ConsoleOutput.WriteLine("NVG_AUTO_GENERATE starting generation.", Color.Yellow);
+                Global.generator.StartGeneration();
+            }
+#endif
             return true;
         }
         public static PluginReturnValue PickRandom(Random rnd, string video, AddonType addonType = AddonType.Effect)
