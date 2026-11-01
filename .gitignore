@@ -412,3 +412,9 @@ baseroot/bin/*.xml
 baseroot/bin/*.icc
 .temp/
 dotnet-install.sh
+
+# DesktopGL build outputs
+/bin/
+obj-desktopgl*/
+content/bin/DesktopGL/
+content/obj/DesktopGL/

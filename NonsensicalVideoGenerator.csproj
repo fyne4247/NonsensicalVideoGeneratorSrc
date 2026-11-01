@@ -27,7 +27,6 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <Platforms>x64</Platforms>
     <ProjectGuid>{dddb8c0a-4f2d-4e5b-9a1c-3f7d6e0f1a2b}</ProjectGuid>
     <Nullable>enable</Nullable>
-    <DefineConstants>WINDOWSDX</DefineConstants>
     <UseWindowsForms>true</UseWindowsForms>
     <TargetFramework>net8.0-windows</TargetFramework>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
@@ -46,17 +45,35 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
   <PropertyGroup Condition="'$(NvgPlatform)' == 'DesktopGL'">
     <EnableWindowsTargeting>false</EnableWindowsTargeting>
     <OutputType>Exe</OutputType>
-    <DefineConstants>DESKTOPGL</DefineConstants>
+    <!-- Append so the SDK's DEBUG configuration define and TRACE both stay. Do not keep WINDOWSDX. -->
+    <DefineConstants>TRACE</DefineConstants>
+    <DefineConstants>$(DefineConstants);DESKTOPGL</DefineConstants>
+    <DefineConstants Condition="'$(NvgSteam)' == 'true'">$(DefineConstants);NVG_STEAM</DefineConstants>
     <UseWindowsForms>false</UseWindowsForms>
     <TargetFramework>net8.0</TargetFramework>
     <OutputPath>bin/x64/$(Configuration)/net8.0-desktopgl/</OutputPath>
-    <IntermediateOutputPath>obj-desktopgl/$(Configuration)/</IntermediateOutputPath>
+    <!-- Fail CoreCompile's dependency so NVG_STEAM stops before the C# compiler cascades. -->
+    <CoreCompileDependsOn>RejectDesktopGLSteam;$(CoreCompileDependsOn)</CoreCompileDependsOn>
     <ApplicationManifest></ApplicationManifest>
     <ApplicationIcon></ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition="'$(NvgPlatform)' != 'DesktopGL'">
+    <DefineConstants>WINDOWSDX</DefineConstants>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <!--
+    The content task globs **/*.mgcb when EnableMGCBItems is left at the package
+    default. That glob ignores the item conditions below and runs the native
+    builder, which aborts on arm64 macOS (FreeImage / freetype). Turn the glob
+    off and include one pipeline explicitly. tools/build-content-desktopgl.sh
+    builds the DesktopGL content with the x64 SDK.
+  -->
+  <PropertyGroup>
+    <EnableMGCBItems>false</EnableMGCBItems>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(NvgPlatform)' == 'DesktopGL' and '$(NvgSkipMgcb)' == '' and $([MSBuild]::IsOSPlatform('OSX')) and $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) == 'Arm64'">
+    <NvgSkipMgcb>true</NvgSkipMgcb>
   </PropertyGroup>
   <ItemGroup>
     <TrimmerRootAssembly Include="Microsoft.Xna.Framework.Content.ContentTypeReader" Visible="false" />
@@ -75,7 +92,15 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="ExeWrapper/ExeWrapper.cs" />
+    <Compile Remove="tests/**" />
+    <!-- Generated AssemblyInfo under a DesktopGL obj tree must not be compiled again. -->
+    <Compile Remove="obj-desktopgl*/**" />
+    <None Remove="obj-desktopgl*/**" />
+    <EmbeddedResource Remove="obj-desktopgl*/**" />
   </ItemGroup>
+  <Target Name="RejectDesktopGLSteam" Condition="'$(NvgPlatform)' == 'DesktopGL' and ('$(NvgSteam)' == 'true' or $(DefineConstants.Contains('NVG_STEAM')))">
+    <Error Text="NVG_STEAM is not supported on the DesktopGL build. Steam integration stays off. Unset NvgSteam / NVG_STEAM." />
+  </Target>
   <ItemGroup>
     <PackageReference Include="DiscordRichPresence" Version="1.2.1.24" />
     <PackageReference Include="MonoGame.Extended" Version="4.0.2" />
@@ -156,29 +181,79 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <Copy SourceFiles=".\packages\MoonSharp\MoonSharp.Interpreter.dll" DestinationFiles="$(ProjectDir)bin\x64\Release\net8.0-windows\MoonSharp.Interpreter.dll" />
     <Copy SourceFiles=".\packages\MoonSharp\MoonSharp.Interpreter.dll" DestinationFiles="$(ProjectDir)bin\x64\Debug\net8.0-windows\MoonSharp.Interpreter.dll" />
 	</Target>
+  <!--
+    Copy inside the target that sets the destination. A called target does not
+    see that property, and an empty destination writes over the source tree.
+  -->
   <Target Name="CopyPluginsDesktopGL" AfterTargets="Build" Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <PropertyGroup>
+      <_NvgCopyTo>$([MSBuild]::EnsureTrailingSlash($(OutDir)))</_NvgCopyTo>
+    </PropertyGroup>
+    <Error Condition="'$(_NvgCopyTo)' == '' Or '$([System.IO.Path]::GetFullPath($(_NvgCopyTo)))' == '$([System.IO.Path]::GetFullPath($(ProjectDir)))'" Text="DesktopGL payload destination must be the build output directory." />
     <ItemGroup>
+      <DesktopGLPlugins Remove="@(DesktopGLPlugins)" />
+      <DesktopGLTemplates Remove="@(DesktopGLTemplates)" />
+      <DesktopGLLocales Remove="@(DesktopGLLocales)" />
+      <DesktopGLRoot Remove="@(DesktopGLRoot)" />
+      <DesktopGLGraphics Remove="@(DesktopGLGraphics)" />
+      <DesktopGLSound Remove="@(DesktopGLSound)" />
+      <DesktopGLContent Remove="@(DesktopGLContent)" />
       <DesktopGLPlugins Include="$(ProjectDir)baseplugins/user/**/*.*" />
       <DesktopGLTemplates Include="$(ProjectDir)basetemplates/**/*.*" />
       <DesktopGLLocales Include="$(ProjectDir)public/locales/**/*.*" />
       <DesktopGLRoot Include="$(ProjectDir)baseroot/**/*.*" />
       <DesktopGLGraphics Include="$(ProjectDir)content/graphics/**/*.*" />
       <DesktopGLSound Include="$(ProjectDir)content/sound/**/*.*" />
+      <!-- Script output is Content/. The MGCB task names its folder after the mgcb file. -->
+      <DesktopGLContent Include="$(ProjectDir)content/bin/DesktopGL/Content/**/*.*" />
+      <DesktopGLContent Include="$(ProjectDir)content/bin/DesktopGL/Content.DesktopGL/**/*.*" Condition="!Exists('$(ProjectDir)content/bin/DesktopGL/Content')" />
     </ItemGroup>
-    <MakeDir Directories="$(OutDir)plugins" />
-    <MakeDir Directories="$(OutDir)library/audio" />
-    <MakeDir Directories="$(OutDir)library/video" />
-    <MakeDir Directories="$(OutDir)templates" />
-    <MakeDir Directories="$(OutDir)locales" />
-    <Copy SourceFiles="@(DesktopGLPlugins)" DestinationFiles="$(OutDir)plugins/user/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Copy SourceFiles="@(DesktopGLTemplates)" DestinationFiles="$(OutDir)templates/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Copy SourceFiles="@(DesktopGLLocales)" DestinationFiles="$(OutDir)locales/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Copy SourceFiles="@(DesktopGLRoot)" DestinationFiles="$(OutDir)%(RecursiveDir)%(Filename)%(Extension)" />
-    <Copy SourceFiles="@(DesktopGLGraphics)" DestinationFiles="$(OutDir)templates/defaultlayer/graphics/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Copy SourceFiles="@(DesktopGLSound)" DestinationFiles="$(OutDir)templates/defaultlayer/sound/%(RecursiveDir)%(Filename)%(Extension)" />
+    <MakeDir Directories="$(_NvgCopyTo)plugins;$(_NvgCopyTo)library/audio;$(_NvgCopyTo)library/video;$(_NvgCopyTo)templates;$(_NvgCopyTo)locales" />
+    <Copy SourceFiles="@(DesktopGLPlugins)" DestinationFiles="$(_NvgCopyTo)plugins/user/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLTemplates)" DestinationFiles="$(_NvgCopyTo)templates/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLLocales)" DestinationFiles="$(_NvgCopyTo)locales/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLRoot)" DestinationFiles="$(_NvgCopyTo)%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLGraphics)" DestinationFiles="$(_NvgCopyTo)templates/defaultlayer/graphics/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLSound)" DestinationFiles="$(_NvgCopyTo)templates/defaultlayer/sound/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLContent)" DestinationFiles="$(_NvgCopyTo)Content/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
   </Target>
-  <!-- Vendored Extended assemblies are IL-only but marked AMD64. arm64 CoreCLR will not load them until the machine id is AnyCPU. -->
+  <Target Name="CopyDesktopGLPublish" AfterTargets="Publish" Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <PropertyGroup>
+      <_NvgCopyTo>$([MSBuild]::EnsureTrailingSlash($(PublishDir)))</_NvgCopyTo>
+    </PropertyGroup>
+    <Error Condition="'$(_NvgCopyTo)' == '' Or '$([System.IO.Path]::GetFullPath($(_NvgCopyTo)))' == '$([System.IO.Path]::GetFullPath($(ProjectDir)))'" Text="DesktopGL publish payload destination must be the publish directory." />
+    <ItemGroup>
+      <DesktopGLPlugins Remove="@(DesktopGLPlugins)" />
+      <DesktopGLTemplates Remove="@(DesktopGLTemplates)" />
+      <DesktopGLLocales Remove="@(DesktopGLLocales)" />
+      <DesktopGLRoot Remove="@(DesktopGLRoot)" />
+      <DesktopGLGraphics Remove="@(DesktopGLGraphics)" />
+      <DesktopGLSound Remove="@(DesktopGLSound)" />
+      <DesktopGLContent Remove="@(DesktopGLContent)" />
+      <DesktopGLPlugins Include="$(ProjectDir)baseplugins/user/**/*.*" />
+      <DesktopGLTemplates Include="$(ProjectDir)basetemplates/**/*.*" />
+      <DesktopGLLocales Include="$(ProjectDir)public/locales/**/*.*" />
+      <DesktopGLRoot Include="$(ProjectDir)baseroot/**/*.*" />
+      <DesktopGLGraphics Include="$(ProjectDir)content/graphics/**/*.*" />
+      <DesktopGLSound Include="$(ProjectDir)content/sound/**/*.*" />
+      <!-- Script output is Content/. The MGCB task names its folder after the mgcb file. -->
+      <DesktopGLContent Include="$(ProjectDir)content/bin/DesktopGL/Content/**/*.*" />
+      <DesktopGLContent Include="$(ProjectDir)content/bin/DesktopGL/Content.DesktopGL/**/*.*" Condition="!Exists('$(ProjectDir)content/bin/DesktopGL/Content')" />
+    </ItemGroup>
+    <MakeDir Directories="$(_NvgCopyTo)plugins;$(_NvgCopyTo)library/audio;$(_NvgCopyTo)library/video;$(_NvgCopyTo)templates;$(_NvgCopyTo)locales" />
+    <Copy SourceFiles="@(DesktopGLPlugins)" DestinationFiles="$(_NvgCopyTo)plugins/user/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLTemplates)" DestinationFiles="$(_NvgCopyTo)templates/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLLocales)" DestinationFiles="$(_NvgCopyTo)locales/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLRoot)" DestinationFiles="$(_NvgCopyTo)%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLGraphics)" DestinationFiles="$(_NvgCopyTo)templates/defaultlayer/graphics/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLSound)" DestinationFiles="$(_NvgCopyTo)templates/defaultlayer/sound/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLContent)" DestinationFiles="$(_NvgCopyTo)Content/%(RecursiveDir)%(Filename)%(Extension)" SkipUnchangedFiles="true" />
+  </Target>
+  <!-- Vendored Extended assemblies are IL-only but marked AMD64. arm64 CoreCLR refuses that machine id even when ILONLY is set. retarget-ilonly.py rewrites the output copies to I386 and leaves native images and the packages/ originals alone. -->
   <Target Name="RetargetIlOnlyAmd64" AfterTargets="CopyPluginsDesktopGL" Condition="'$(NvgPlatform)' == 'DesktopGL'">
     <Exec Command="python3 &quot;$(ProjectDir)src/backend/platform/retarget-ilonly.py&quot; &quot;$(TargetDir)&quot;" />
+  </Target>
+  <Target Name="RetargetIlOnlyAmd64Publish" AfterTargets="Publish" Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <Exec Command="python3 &quot;$(ProjectDir)src/backend/platform/retarget-ilonly.py&quot; &quot;$(PublishDir)&quot;" />
   </Target>
 </Project>

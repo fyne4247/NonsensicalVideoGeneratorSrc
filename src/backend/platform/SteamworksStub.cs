@@ -1,4 +1,7 @@
-#if DESKTOPGL
+#if DESKTOPGL && NVG_STEAM
+#error NVG_STEAM is not supported on the DesktopGL build. Steam integration stays off. Unset NvgSteam / NVG_STEAM.
+#endif
+#if DESKTOPGL && !NVG_STEAM
 using System;
 using System.Collections.Generic;
 
