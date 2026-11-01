@@ -244,3 +244,32 @@ Acceptance and tests:
 - Integration dependency: hard-2 alone does not compile DesktopGL because the game project includes tests/**; hard-3 owns the Compile Remove fix. Do not treat hard-2 as an independently buildable delivered state; retain both branches until reviewed integration compiles and checks pass.
 - Still unverified: real chooser completion, file drop, audible preview, Windows GUI. Opus plans Windows build regression after integration. hard-3 remains in progress; main clean per Opus.
 - NEXT ACTION: Await hard-3 and Opus's consolidated integration review; then verify combined tests/build and remaining UI acceptance before installer work. No main merge or push.
+
+## Review — production round P (Opus, 2026-11-01)
+### Worker branches
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-2 (L2) | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-2 | 6445621 | APPROVE. Closed. One fix round: stopped seeding `bin/` into the data root. |
+| hard-3 (L3) | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-3 | 44fbf6e | APPROVE. Closed. One fix round: the timeout now applies only to the vocoder (10 min); other tools wait until they exit. Includes the easy-1 merge (f524416) and the Mint 22.3 wording fix. |
+
+### Trial merge `flow-test/flow-1101-0201-p` (e3cffb8 = team branch + hard-2 + hard-3)
+- Conflicts: none.
+- Mac: `dotnet test tests/NvgPlatform.Tests` 13/13; `dotnet test tests/NvgMedia.Tests` 9/9 (temp HOME/NVG_DATA_DIR; real Application Support dir not created); `dotnet build -p:NvgPlatform=DesktopGL -p:NvgSkipMgcb=true` 0 errors / 4 warnings.
+- Windows VM: default WindowsDX full `dotnet build` of e3cffb8: 0 errors / 4 warnings. **Windows build regression: PASS.** VM shut down afterwards; ollama left inactive (its prior state).
+- Worker-reported on 750: both test projects pass, the DesktopGL build includes in-build content, the linux-x64 publish works, and FFmpeg n7.1.1 shared libs build from source (GPL-3.0-or-later). A headless launch loaded all eight 7.1 libraries.
+
+### Integration notes for Sol
+1. Merge hard-2 and hard-3 together: hard-2 alone doesn't compile DesktopGL, because the game csproj picks up `tests/**`. hard-3's csproj removes it from Compile.
+2. `src/data/FramePlayer.cs` still calls bare `ffmpeg`. Route it through `ToolPaths.Ffmpeg(...)` (small).
+3. `Directory.Build.props` (new, from hard-3) is required: the DesktopGL obj paths have to be set before the SDK props load. Pass `-p:NvgPlatform=DesktopGL` as a global property.
+4. Windows behaviour change: Cancel now kills only processes this job started (`ProcessTree.KillOwned`) instead of every child process via PowerShell/CIM. This was planned. It compiles on Windows, but cancel hasn't been exercised there.
+5. Upgrades add only missing stock files to the data root, so an updated stock plugin won't replace a user's existing copy. This is by design for now; L4 should decide on versioned stock refresh.
+
+### Still pending acceptance (needs a person or computer-use)
+- Mac + Linux: Library → Add through the real picker (Cancel / one file / several), preview with **audible** audio, file drop onto the window, clipboard paste in a text field, TTS with accessibility on.
+- Windows: interactive launch in the VM desktop (SSH launch can't create a D3D device).
+- The arm64 Mac in-build content step still needs `tools/build-content-desktopgl.sh` (Rosetta x64 SDK) because MGCB natives are x86_64-only.
+
+### Next
+- L4 (installers + docs) can start once Sol merges hard-2 + hard-3 into the team branch. It needs one hard worker, owning new `tools/package/**`, `MACOS_BUILD_INSTRUCTIONS.md`, `LINUX_BUILD_INSTRUCTIONS.md` and `README.md`.
+- Main checkout clean at every check.
