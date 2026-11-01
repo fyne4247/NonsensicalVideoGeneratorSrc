@@ -315,6 +315,8 @@ Acceptance and tests (no test project covers these scripts):
 
 ## Final P corrections — Sol, 2026-11-01
 - Opus approved constant correction 627e699. Opus independently traced SharpCompress as unused (only an unused using, no archive calls or vendored dependencies), and recommended removing it rather than upgrading dead code.
-- Applied exact removal in d3edb84; independent final diff review requested. DesktopGL build passed after removal, and all 22 tests passed again with the same per-file, max-four, nice/timeout execution. Active deps.json no longer lists SharpCompress or ZstdSharp. Old publish directory contents are not proof of this; packages must be built from clean staging.
+- Applied exact removal in d3edb84; Opus independently APPROVED the diff and confirmed no remaining code/build references. DesktopGL build passed after removal, and all 22 tests passed again with the same per-file, max-four, nice/timeout execution. Active deps.json no longer lists SharpCompress or ZstdSharp. Old publish directory contents are not proof of this; packages must be built from clean staging.
 - Asked Opus to ensure final installer artifacts are rebuilt from current integration, review d3edb84, and validate Windows build at final integration baseline within the existing owner-authorized VM scope. GUI/audio acceptance remains pending; no main merge.
 - NEXT ACTION: Await installer review and final correction review; then finish packaging and actual desktop validation before reporting completion. Nothing pushed/published.
+
+- Installer follow-through confirmed by Opus: hard-4 will merge current team changes, rebuild clean staging, verify neither removed DLL ships, and document non-overwrite upgrade behavior. Opus will perform the final Windows build after installer integration. Historical credits/license files remain preserved; cosmetic cleanup is not required for this port.
