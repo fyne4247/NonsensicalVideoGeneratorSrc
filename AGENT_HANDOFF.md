@@ -451,3 +451,17 @@ Phase B (only after Opus messages that hard-6 is merged into the team branch):
 - Opus then found the runtime bundle-write defect documented in 7058c33. GUI acceptance HOLD acknowledged; builds/tests above do NOT clear this defect.
 - hard-6 is fixing writable vs resource paths; hard-7 handles Intel native dependencies and final package rebuild after hard-6 integration. Asked Opus to validate installed-package pre/post resource hashes/signatures, actual render destinations, and data preservation during upgrades, beyond only new-file timestamps.
 - NEXT ACTION: await hard-6's reviewed correction, integrate it, and let hard-7 rebuild all packages. Resume normal GUI verification only against a fixed package that preserves its signed/read-only resources. Native support/installers remain unfinished; no main merge, push or publication.
+
+## Review — writable paths (Opus, 2026-11-01)
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-6 | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-6 | cf973d4 | APPROVE. Closed. |
+- New `AppPaths`: `Writable` is the data root on DesktopGL and the assembly dir on Windows (unit-tested both ways). `Resources` is the resource root.
+- Moved to `Writable`: cache, render tempOutput + titled render, every ffmpeg/ffprobe `WorkingDirectory`, GeneratePage renders, thumb.bmp, both console.txt sites, the PluginHandler command cwd fallback, library downloads, `LibraryHasFile`, the publish gif temp.
+- Moved to `Resources`: FREI0R_PATH, the DebugPage locale listing, Kiwano steam_appid check, the localized default outro.
+- Left on the assembly dir (all reads, or Steam-only): Localization, ThemeManager, PastimeGameScreen credits, FfmpegNative, PlatformClipboard, PluginHandler:2344 (Steam `SetItemContent`).
+- Worker-reported: NvgPlatform 15/15 and NvgMedia 10/10 on Mac and 750; DesktopGL builds 0 errors. The read-only build copy was launched for 30 s on Mac and on 750 `:0`: nothing new inside the copy, and cache + console.txt were under the data root. The requested sha256 manifest diff was **not** reported; hard-7 Phase B does it on the installed packages.
+- Linux debug launch hit SIGABRT in the video-player finalizer after "Failed to load video". The unpackaged debug output has no FFmpeg 7 libs. Re-check this on the packaged build (hard-7 Phase B). If it reproduces with libs present, it's a real crash on exit.
+- Opus trial merge `flow-test/flow-1101-0201-paths` (d779246 = team 93aa503 + hard-6, branch kept): no conflicts. Mac 15/15 + 10/10, DesktopGL build 0 errors.
+- **Windows VM build of this change: pending.** It touches shared files (Generator, PluginHandler, pages).
+- **750 disk is 99% full (6.6 GB free).** The VM image `~/VMs/windows-11/disk.qcow2` grew to 32 GB with our build clones and SDK; our Linux scratch dirs `~/nvg-p2..p6` and `~/nvg-trial` hold about 6 GB. Owner decision needed before Phase B on 750 or another VM build.
