@@ -516,7 +516,11 @@ public sealed class AudioOutputFollowerTests
         }
         public string? DeviceName(IntPtr device) => Marshal.PtrToStringUTF8(str(device, 0x1013));
         public long DefaultToken() => 0;
-        public string? DefaultName() => Marshal.PtrToStringUTF8(str(IntPtr.Zero, 0x1012));
+        public string? DefaultName()
+        {
+            str(IntPtr.Zero, 0x1013); // re-probe, as the real API class does
+            return Marshal.PtrToStringUTF8(str(IntPtr.Zero, 0x1012));
+        }
         public bool ReopenDefault(IntPtr device) => reopen!(device, IntPtr.Zero, IntPtr.Zero) != 0;
     }
 }

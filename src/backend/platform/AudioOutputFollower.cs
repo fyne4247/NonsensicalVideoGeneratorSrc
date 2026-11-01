@@ -443,6 +443,9 @@ namespace NonsensicalVideoGenerator
 
             public string? DefaultName()
             {
+                // OpenAL Soft 1.22 caches the default-device string and only re-probes the
+                // device list when ALC_ALL_DEVICES_SPECIFIER is queried. Query that first.
+                getString!(IntPtr.Zero, AlcAllDevicesSpecifier);
                 return Marshal.PtrToStringUTF8(getString!(IntPtr.Zero, AlcDefaultAllDevicesSpecifier));
             }
 
