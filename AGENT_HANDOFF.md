@@ -236,3 +236,11 @@ Acceptance and tests:
 - Opus runs the Windows VM build and the trial merge.
 - Then L4 (one hard worker): `.app`/DMG with ad-hoc signing, a Linux tarball with user-local installer and desktop entry, and docs.
 - Human/computer-use GUI pass on Mac and Linux: Library → Add → preview with audio heard, dialog, clipboard, TTS. Windows interactive launch in the VM.
+
+## L2 app shell result — Opus report, 2026-11-01
+- hard-2 APPROVED by Opus and closed, branch retained: `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-2`, final `6445621` atop `c8fdfd0`, base `e8f398c`. Worktree path not included in report; verify actual path before eventual cleanup.
+- Changes reported: native writable DataRoots (Mac Application Support/Linux XDG, NVG_DATA_DIR override), non-overwriting seed of plugins/templates/locales/library/docs excluding bin, absolute content resource root, trial hooks removed, real chooser/clipboard/TTS/shell helpers, boot-movie empty-path fix.
+- Evidence reported: tests/NvgPlatform.Tests 13/13 on Mac and 750; Linux DesktopGL build with content passed in worker validation. Not independently repeated by Sol.
+- Integration dependency: hard-2 alone does not compile DesktopGL because the game project includes tests/**; hard-3 owns the Compile Remove fix. Do not treat hard-2 as an independently buildable delivered state; retain both branches until reviewed integration compiles and checks pass.
+- Still unverified: real chooser completion, file drop, audible preview, Windows GUI. Opus plans Windows build regression after integration. hard-3 remains in progress; main clean per Opus.
+- NEXT ACTION: Await hard-3 and Opus's consolidated integration review; then verify combined tests/build and remaining UI acceptance before installer work. No main merge or push.
