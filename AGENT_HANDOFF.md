@@ -165,3 +165,74 @@ No shared files between the two workers. No sequencing needed. Remote dirs are s
 - Window launch over noninteractive SSH failed identically for baseline/trial at GraphicsDeviceManager.CreateDevice (no D3D adapter); Windows interactive launch remains NOT VERIFIED. Native normal UI click-through and audible preview checks likewise remain pending.
 - Opus reports creating and deleting temporary local labels nvgwin-base/nvgwin-trial pointing at existing commits while preparing bundles; no work lost. This violated the no-branch-deletion workflow rule. Reminded Opus to preserve all labels in future and use existing refs/hashes instead. No target history was reported changed.
 - Main checkout remains clean per Opus. No merge to main or publication. NEXT ACTION: Opus triages bounded L2–L4 production assignments, preserving successful evidence and pending GUI/audio acceptance; Sol maintains the handoff.
+
+## Windows check (Opus, 2026-11-01, owner-approved VM)
+- Default WindowsDX config, Win11 VM on 750, .NET SDK 8.0.427 user-local in the VM, VC++ 2015-2022 x64 runtime installed in the VM (owner approved).
+- Full `dotnet build`: baseline 8e1af0f → 0 errors / 4 warnings; trial e8f398c → 0 errors / 4 warnings. **Windows build regression: PASS.**
+- Launch over SSH: both crash identically at `GraphicsDeviceManager.CreateDevice` (no D3D adapter in the non-interactive session). **Windows windowed launch: NOT verified.**
+- VM shut down afterwards. ollama was already inactive before the check and was left inactive.
+
+## Triage — production round P (Opus, 2026-11-01)
+Sol asked for bounded L2–L4 work built on the trial. This round covers L2 + L3 in parallel. L4 (installers/docs) starts only after both are merged into the team branch.
+Both workers start from hard-1's trial commit **e8f398c** (I reset their worktrees to it), so the trial code is kept and turned into real code. Trial hooks get removed.
+
+**Staffing:** 2 hard workers in parallel (Grok 4.7). Both tasks are hard: process control, native ABI, data-root design and cross-OS UI helpers, where a wrong guess costs a lot. Each is widespread across 8–12 files. No easy work can be split off cleanly.
+
+### Shared-file decision
+Generator.cs and LibraryData.cs need two kinds of change: tool paths (14 `.\bin\*.exe` sites) and data roots. To avoid touching them twice, **data roots are done by changing the working directory**: at startup hard-2 sets `Environment.CurrentDirectory` to the writable data root and gives an absolute resource root for read-only files. Existing relative writes (`library/`, `temp/`, `plugins/`, settings JSON) then land in the data root without edits. So Generator.cs and LibraryData.cs go wholly to hard-3, and hard-2 doesn't touch them.
+`PlatformFileDialog.OpenFiles(string title, string filter, bool multiselect, string? initialDir)` is used by hard-3's PluginHandler.cs. **hard-2 must keep that signature.**
+
+### flow-1101-0201-hard-2 — L2 app shell, data roots, UI helpers
+Owns: `src/backend/platform/{NvgPaths,PlatformClipboard,PlatformFileDialog,PlatformShell,PlatformTts,GraphicsThread,BmpThumbnail,TrialGate}.cs`, new `src/backend/platform/DataRoots.cs`; `src/backend/{Program,UserInterface,Accessibility,Global,GlobalGraphics}.cs`; `src/interactables/TextInput.cs`; `src/pages/{LibraryPage,PluginsPage}.cs`; `src/data/{SaveData,FramePlayer,ThemeManager}.cs`; new `tests/NvgPlatform.Tests/**`.
+Must not touch: anything hard-3 owns (listed below), `AGENT_HANDOFF.md`, `PLAN_*.md`, `TRIAL_S1_L1.md`, publish/Steam/Proton scripts, the main checkout. Ask Opus for any other `src/` file.
+Work:
+1. Remove the trial hooks: `TrialGate.cs`, `-trial`, `-vocoder-stdin` (Program.cs, UserInterface.cs).
+2. Data roots (DesktopGL only; Windows unchanged):
+   - Writable root: `~/Library/Application Support/NonsensicalVideoGenerator` on macOS, `${XDG_DATA_HOME:-~/.local/share}/NonsensicalVideoGenerator` on Linux. The `NVG_DATA_DIR` env var overrides it (tests use this).
+   - Resource root: `AppContext.BaseDirectory`. MonoGame content must load from the absolute resource root.
+   - First run seeds `plugins/`, `templates/`, `locales/` and the baseroot files from the resource root. Never overwrite user-changed files. Later versions add missing stock files only.
+   - No migration of existing data.
+3. Real helpers:
+   - File dialogs: macOS `osascript` (choose file, multiple selections, type filter). Linux tries `zenity`, then `kdialog`. Cancel returns empty. A missing helper shows a visible message and never hangs. Arguments go through `ArgumentList`, never a joined string.
+   - Clipboard: SDL2 via P/Invoke. Free SDL-owned memory with `SDL_free`.
+   - TTS: `say` on macOS; `spd-say`, then `espeak-ng`, on Linux. Cancel/queue works. A missing voice service is visible but not fatal.
+   - Folder open: `open` / `xdg-open`, used for all `explorer.exe` sites in LibraryPage/PluginsPage.
+   - DesktopGL `Window.FileDrop` for drag-and-drop.
+4. Fix the empty boot-video path (`Could not load boot video:` in the trial log). Sweep the remaining backslash paths in owned files.
+Acceptance and tests:
+- `tests/NvgPlatform.Tests` (xUnit, net8.0) covers data-root resolution and the `NVG_DATA_DIR` override, seeding without overwriting, paths with spaces/non-ASCII, dialog behaviour with a missing helper, and dialog/shell argv building. Tests must set `NVG_DATA_DIR` and a temp `HOME`/`XDG_DATA_HOME`, and must never touch real user dirs; check this before the first run.
+- Run: `dotnet test tests/NvgPlatform.Tests` on the Mac and on 750 (in `~/nvg-p2/`), plus `dotnet build -p:NvgPlatform=DesktopGL` on both.
+- Windows default build: compile-check only on the Mac is not possible. Report it as "needs Windows VM build". Opus runs it.
+- GUI checks (dialog, clipboard, TTS, drop) go **last, one at a time**. If one needs focus, don't retry; list exact steps for a human.
+
+### flow-1101-0201-hard-3 — L3 tools, media, build
+Owns: `NonsensicalVideoGenerator.csproj`, `.gitignore`, `content/Content.DesktopGL.mgcb`; `src/backend/Generator.cs`; `src/data/{PluginHandler,SteamManager,LibraryData}.cs`; `src/backend/platform/{FfmpegNative,SteamworksStub,ProcessTree}.cs`, `src/backend/platform/retarget-ilonly.py`, new `src/backend/platform/ToolPaths.cs`; `baseplugins/**`; `tools/**`; new `tests/NvgMedia.Tests/**`.
+First step: `git merge atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-easy-1` (brings `tools/vocoder/`). Then fix NOTES.md: 750 is Linux Mint 22.3 (Ubuntu noble base).
+Must not touch: anything hard-2 owns, `AGENT_HANDOFF.md`, `PLAN_*.md`, `TRIAL_S1_L1.md`, `publish.*`, `steamcmd*`, `proton.sh`, the main checkout.
+Work:
+1. `ToolPaths`: one resolver for ffmpeg, ffprobe, magick, yt-dlp, deno and vocoder. Order: bundled `<resource root>/bin/<name>[.exe]`, then PATH. Replace all 14 Generator.cs sites, the LibraryData yt-dlp/deno sites and the PluginHandler sites. Make `Installed()` checks and diagnostics report the real availability and the required FFmpeg codecs/filters. Windows resolution stays as today.
+2. Process control: replace the PowerShell/CIM kill at Generator.cs:73 with owned-process tracking plus `Kill(entireProcessTree:true)`. Cancel kills only this job's processes, never other ffmpeg processes.
+3. Vocoder no-argument spin: add a per-command timeout in `Command.Call` (DesktopGL), and/or a tiny patch applied by `tools/vocoder/build-vocoder.sh` that exits on EOF (record the patch in NOTES.md).
+4. FFmpeg 7.1 app-local: `tools/ffmpeg7/build-ffmpeg7.sh` (macOS + Linux) builds pinned 7.1.x shared libs from source into a given dir and records the version and licence. Fix the Linux `.so.61.so` lookup in `FfmpegNative`/the resolver, rather than staging an alias name.
+5. Build:
+   - csproj DesktopGL `DefineConstants` must append (`$(DefineConstants);DESKTOPGL`) so DEBUG/TRACE stay.
+   - `.gitignore` gets `bin/`, `obj-desktopgl*/` and the content outputs.
+   - `tools/build-content-desktopgl.sh` automates the arm64-Mac content build (x64 SDK under Rosetta, user-local) and the linux-x64 content build.
+   - Make the build copy content/plugins/locales into the publish output.
+   - `NVG_STEAM` + DesktopGL must either compile or fail with one clear error message.
+6. Remove any trial-only code left in owned files. Keep `retarget-ilonly.py` only if it's still needed, and document why.
+Acceptance and tests:
+- `tests/NvgMedia.Tests` (xUnit, net8.0) covers ToolPaths order and the missing-tool case, owned-process cancellation (spawn `sleep`, cancel, check an unrelated `sleep` survives), vocoder no-arg returning within the timeout, and FFmpeg library-name mapping per OS. Use a temp `NVG_DATA_DIR`/`HOME`.
+- Run: `dotnet test tests/NvgMedia.Tests` on the Mac and on 750 (in `~/nvg-p3/`); `dotnet build -p:NvgPlatform=DesktopGL` and `dotnet publish -r linux-x64` on both; `tools/ffmpeg7/build-ffmpeg7.sh` on 750 into `~/nvg-p3/ffmpeg7`; a CLI render of a stock effect with the bundled-tools path, checked with ffprobe.
+- No sudo/apt/brew changes. User-local SDKs in `~/.dotnet-nvg` / `~/.dotnet-nvg-x64` only.
+
+### Both workers
+- Don't push or publish. Steam stays off.
+- Quote every path. macOS has no `timeout`, so use `gtimeout` or a Python wrapper.
+- Commit on your own branch. Report: branch, final commit, commands run with their pass/fail output, and anything not verified.
+
+### After P (not started yet)
+- Sol merges hard-2 + hard-3 into the team branch.
+- Opus runs the Windows VM build and the trial merge.
+- Then L4 (one hard worker): `.app`/DMG with ad-hoc signing, a Linux tarball with user-local installer and desktop entry, and docs.
+- Human/computer-use GUI pass on Mac and Linux: Library → Add → preview with audio heard, dialog, clipboard, TTS. Windows interactive launch in the VM.
