@@ -13,6 +13,14 @@ namespace NonsensicalVideoGenerator
         [STAThread]
         static void Main(string[] args)
         {
+#if DESKTOPGL
+            DataRoots.Apply();
+            FfmpegNative.Register();
+            Global.useSystemFFmpeg = true;
+            Global.useSystemFFprobe = true;
+            Global.useSystemMagick = true;
+            Global.useSystemYtDlp = true;
+#endif
             // Launch options
             for(int i = 0; i < args.Length; i++)
             {
@@ -58,8 +66,14 @@ namespace NonsensicalVideoGenerator
             if(!Global.parameters.Contains("-nofrei0r"))
             {
                 // Set FREI0R_PATH environment variable.
-                Environment.SetEnvironmentVariable("FREI0R_PATH", Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "frei0r-1"), EnvironmentVariableTarget.User);
+                string frei0r = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "frei0r-1");
+#if DESKTOPGL
+                Environment.SetEnvironmentVariable("FREI0R_PATH", frei0r, EnvironmentVariableTarget.Process);
+                ConsoleOutput.WriteLine("FREI0R_PATH: " + Environment.GetEnvironmentVariable("FREI0R_PATH"), Color.Transparent);
+#else
+                Environment.SetEnvironmentVariable("FREI0R_PATH", frei0r, EnvironmentVariableTarget.User);
                 ConsoleOutput.WriteLine("FREI0R_PATH: " + Environment.GetEnvironmentVariable("FREI0R_PATH", EnvironmentVariableTarget.User), Color.Transparent);
+#endif
             }
             SaveData.Load();
             if(Global.parameters.Contains("-v"))

@@ -42,7 +42,19 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
-  <PropertyGroup>
+  <!-- DesktopGL trial switch. Unset NvgPlatform keeps the WindowsDX property groups above. -->
+  <PropertyGroup Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <EnableWindowsTargeting>false</EnableWindowsTargeting>
+    <OutputType>Exe</OutputType>
+    <DefineConstants>DESKTOPGL</DefineConstants>
+    <UseWindowsForms>false</UseWindowsForms>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputPath>bin/x64/$(Configuration)/net8.0-desktopgl/</OutputPath>
+    <IntermediateOutputPath>obj-desktopgl/$(Configuration)/</IntermediateOutputPath>
+    <ApplicationManifest></ApplicationManifest>
+    <ApplicationIcon></ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(NvgPlatform)' != 'DesktopGL'">
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>icon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -68,17 +80,18 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <PackageReference Include="DiscordRichPresence" Version="1.2.1.24" />
     <PackageReference Include="MonoGame.Extended" Version="4.0.2" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.2.1105" />
-    <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.2.1105" />
+    <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.2.1105" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.2.1105" Condition="'$(NvgPlatform)' == 'DesktopGL'" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="System.Speech" Version="8.0.0" />
-    <PackageReference Include="WindowsAPICodePack" Version="8.0.4" />
+    <PackageReference Include="System.Speech" Version="8.0.0" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
+    <PackageReference Include="WindowsAPICodePack" Version="8.0.4" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
     <PackageReference Include="SharpCompress" Version="0.37.2" />
   </ItemGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(NvgPlatform)' != 'DesktopGL'">
    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="Steamworks.NET">
+    <Reference Include="Steamworks.NET" Condition="'$(NvgPlatform)' != 'DesktopGL'">
       <HintPath>packages\Steamworks.NET\Steamworks.NET.dll</HintPath>
     </Reference>
     <Reference Include="MoonSharp">
@@ -95,7 +108,8 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <MonoGameContentReference Include="content\Content.mgcb" />
+    <MonoGameContentReference Include="content\Content.mgcb" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
+    <MonoGameContentReference Include="content\Content.DesktopGL.mgcb" Condition="'$(NvgPlatform)' == 'DesktopGL' and '$(NvgSkipMgcb)' != 'true'" />
   </ItemGroup>
   <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
     <Message Text="Restoring dotnet tools" Importance="High" />
@@ -110,7 +124,7 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <BaseLayerGraphics Include="$(ProjectDir)content\graphics\**\*.*" />
     <BaseLayerSound Include="$(ProjectDir)content\sound\**\*.*" />
  	</ItemGroup>
-	<Target Name="CopyPlugins" AfterTargets="Build">
+	<Target Name="CopyPlugins" AfterTargets="Build" Condition="'$(NvgPlatform)' != 'DesktopGL'">
 		<MakeDir Directories="$(ProjectDir)bin\x64\Release\net8.0-windows\plugins" />
     <MakeDir Directories="$(ProjectDir)bin\x64\Release\net8.0-windows\library" />
     <MakeDir Directories="$(ProjectDir)bin\x64\Release\net8.0-windows\library\audio" />
@@ -142,4 +156,29 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <Copy SourceFiles=".\packages\MoonSharp\MoonSharp.Interpreter.dll" DestinationFiles="$(ProjectDir)bin\x64\Release\net8.0-windows\MoonSharp.Interpreter.dll" />
     <Copy SourceFiles=".\packages\MoonSharp\MoonSharp.Interpreter.dll" DestinationFiles="$(ProjectDir)bin\x64\Debug\net8.0-windows\MoonSharp.Interpreter.dll" />
 	</Target>
+  <Target Name="CopyPluginsDesktopGL" AfterTargets="Build" Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <ItemGroup>
+      <DesktopGLPlugins Include="$(ProjectDir)baseplugins/user/**/*.*" />
+      <DesktopGLTemplates Include="$(ProjectDir)basetemplates/**/*.*" />
+      <DesktopGLLocales Include="$(ProjectDir)public/locales/**/*.*" />
+      <DesktopGLRoot Include="$(ProjectDir)baseroot/**/*.*" />
+      <DesktopGLGraphics Include="$(ProjectDir)content/graphics/**/*.*" />
+      <DesktopGLSound Include="$(ProjectDir)content/sound/**/*.*" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)plugins" />
+    <MakeDir Directories="$(OutDir)library/audio" />
+    <MakeDir Directories="$(OutDir)library/video" />
+    <MakeDir Directories="$(OutDir)templates" />
+    <MakeDir Directories="$(OutDir)locales" />
+    <Copy SourceFiles="@(DesktopGLPlugins)" DestinationFiles="$(OutDir)plugins/user/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLTemplates)" DestinationFiles="$(OutDir)templates/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLLocales)" DestinationFiles="$(OutDir)locales/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLRoot)" DestinationFiles="$(OutDir)%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLGraphics)" DestinationFiles="$(OutDir)templates/defaultlayer/graphics/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Copy SourceFiles="@(DesktopGLSound)" DestinationFiles="$(OutDir)templates/defaultlayer/sound/%(RecursiveDir)%(Filename)%(Extension)" />
+  </Target>
+  <!-- Vendored Extended assemblies are IL-only but marked AMD64. arm64 CoreCLR will not load them until the machine id is AnyCPU. -->
+  <Target Name="RetargetIlOnlyAmd64" AfterTargets="CopyPluginsDesktopGL" Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <Exec Command="python3 &quot;$(ProjectDir)src/backend/platform/retarget-ilonly.py&quot; &quot;$(TargetDir)&quot;" />
+  </Target>
 </Project>

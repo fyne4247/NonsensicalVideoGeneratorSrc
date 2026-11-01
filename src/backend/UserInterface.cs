@@ -4,7 +4,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Media;
 using System.IO;
+#if WINDOWSDX
 using System.Windows.Forms;
+#endif
 using System.Globalization;
 using MonoGame.Extended.VideoPlayback;
 using System.Reflection;
@@ -40,7 +42,11 @@ namespace NonsensicalVideoGenerator
         {
             ConsoleOutput.WriteLine("Creating new UserInterface instance...", Color.Transparent);
             _graphics = new GraphicsDeviceManager(this);
+#if DESKTOPGL
+            Content.RootDirectory = DataRoots.ContentDirectory;
+#else
             Content.RootDirectory = "Content";
+#endif
             IsMouseVisible = true;
             instance = this;
             if(Global.parameters.Contains("-unlockfps"))
@@ -89,6 +95,7 @@ namespace NonsensicalVideoGenerator
             }
             GlobalGraphics.SetAspectRatio(aspectRatio);
             _graphics.ApplyChanges();
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
@@ -98,30 +105,36 @@ namespace NonsensicalVideoGenerator
                 else
                     CenterToScreen();
             }
+#endif
             if(!fullscreen)
                 GlobalGraphics.SetAspectRatio(SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio());
         }
         public void CenterToScreen()
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null && Screen.PrimaryScreen != null)
             {
                 // Place window in center of screen.
                 windowForm.Location = new System.Drawing.Point(Screen.PrimaryScreen.WorkingArea.Width / 2 - windowForm.Width / 2, Screen.PrimaryScreen.WorkingArea.Height / 2 - windowForm.Height / 2);
             }
+#endif
         }
         public void SetAlwaysOnTop(bool alwaysOnTop)
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
                 windowForm.TopMost = alwaysOnTop;
             }
+#endif
         }
         public void SetNativeCursor(bool useNativeCursor)
         {
             IsMouseVisible = useNativeCursor;
         }
+#if WINDOWSDX
         // Drag and drop support.
         private void DragEnter(object? sender, DragEventArgs e)
         {
@@ -142,6 +155,7 @@ namespace NonsensicalVideoGenerator
         {
             Global.dragDrop = false;
         }
+#endif
         protected override void Initialize()
         {
             if (bool.Parse(SaveData.saveValues["EnableDiscordRPC"]))
@@ -162,7 +176,13 @@ namespace NonsensicalVideoGenerator
             }
             ConsoleOutput.WriteLine("Form supports drag and drop.", Color.Transparent);
 #else
-            ConsoleOutput.WriteLine("Form does not support drag and drop.", Color.Transparent);
+            Window.FileDrop += (sender, args) =>
+            {
+                Global.dragDropFiles = args.Files != null ? args.Files.ToList() : new List<string>();
+                Global.dragDrop = false;
+                ConsoleOutput.WriteLine("File drop: " + string.Join(", ", Global.dragDropFiles), Color.Transparent);
+            };
+            ConsoleOutput.WriteLine("DesktopGL file drop registered.", Color.Transparent);
 #endif
             // Set window title.
             Window.Title = Global.productName + " v" + Global.productVersion;
@@ -302,6 +322,9 @@ namespace NonsensicalVideoGenerator
         }
         protected override void Update(GameTime gameTime)
         {
+#if DESKTOPGL
+            GraphicsThread.Pump();
+#endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()
             /*
@@ -332,6 +355,16 @@ namespace NonsensicalVideoGenerator
                 try
                 {
                     string? randomBootMovie = PluginHandler.PickRandomBootMovie();
+#if DESKTOPGL
+                    // Plugins are not loaded yet, so the first launch has no PluginSettings.json
+                    // and PickRandomBootMovie returns null. Play the seeded stock movie.
+                    if (string.IsNullOrEmpty(randomBootMovie))
+                    {
+                        string stockBoot = Path.Combine("plugins", "user", "stock", "defaultlogo.mp4");
+                        if (!File.Exists("PluginSettings.json") && File.Exists(stockBoot))
+                            randomBootMovie = stockBoot;
+                    }
+#endif
                     if(randomBootMovie != null && File.Exists(randomBootMovie))
                     {
                         videoPath = VideoCache.GetCachePath(randomBootMovie);
@@ -345,7 +378,8 @@ namespace NonsensicalVideoGenerator
                     }
                     else
                     {
-                        ConsoleOutput.WriteLine("Could not load boot video: " + videoPath, Color.Red);
+                        string shown = string.IsNullOrEmpty(randomBootMovie) ? "(no enabled boot movie)" : Path.GetFullPath(randomBootMovie);
+                        ConsoleOutput.WriteLine("Could not load boot video: " + shown, Color.Red);
                     }
                 }
                 catch (Exception e)

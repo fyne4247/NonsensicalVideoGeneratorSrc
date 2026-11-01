@@ -781,10 +781,14 @@ namespace NonsensicalVideoGenerator
                                     return true;
                                 }
                                 // Open directory and select file
+#if DESKTOPGL
+                                PlatformShell.Reveal(PluginHandler.plugins[i].path);
+#else
                                 startInfo.FileName = "explorer.exe";
                                 startInfo.Arguments = "/select, \"" + Path.GetFullPath(PluginHandler.plugins[i].path) + "\"";
                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                 Process.Start(startInfo);
+#endif
                                 return true;
                             }
                             // Settings button
@@ -1227,12 +1231,16 @@ namespace NonsensicalVideoGenerator
                     case 2: // left click
                         GlobalContent.PlaySound("Select");
                         // Open the plugins folder in explorer
+#if DESKTOPGL
+                        PlatformShell.Open(Path.Combine(Directory.GetCurrentDirectory(), "plugins"));
+#else
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = "explorer.exe",
                             Arguments = Path.Combine(Directory.GetCurrentDirectory(), "plugins"),
                             UseShellExecute = true
                         });
+#endif
                         return true;
                 }
                 return false;
