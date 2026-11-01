@@ -114,5 +114,6 @@ and asks again. The patch exits with status 1 when `fgets` returns NULL
 and writes `vocoder: end of input` to stderr. The upstream copyright
 notice stays. The stock plugin always passes `-b 1024` and three paths,
 so the patch only changes the no-argument launch. DesktopGL
-`Command.Call` also closes stdin and applies `ProcessTree.CommandTimeout`
-so an unpatched binary cannot spin.
+`Command.Call` also closes stdin. Only the vocoder command is bounded
+(`ProcessTree.VocoderTimeout`, 10 minutes). ffmpeg, ffprobe, magick, and
+yt-dlp wait until they exit. Cancel still kills the processes this job started.

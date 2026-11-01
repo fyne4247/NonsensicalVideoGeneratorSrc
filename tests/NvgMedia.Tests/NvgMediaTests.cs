@@ -274,6 +274,59 @@ public class ProcessTreeTests
         Assert.InRange(watch.Elapsed.TotalSeconds, 2, 8);
     }
 
+    [Fact]
+    public void OnlyVocoderIsTimedOut()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(10), ProcessTree.TimeoutFor("/opt/nvg/bin/vocoder"));
+        Assert.Equal(TimeSpan.FromMinutes(10), ProcessTree.TimeoutFor(@".\bin\vocoder.exe"));
+        Assert.Null(ProcessTree.TimeoutFor("ffmpeg"));
+        Assert.Null(ProcessTree.TimeoutFor("/usr/bin/ffmpeg"));
+        Assert.Null(ProcessTree.TimeoutFor(@".\bin\ffmpeg.exe"));
+        Assert.Null(ProcessTree.TimeoutFor("ffprobe"));
+        Assert.Null(ProcessTree.TimeoutFor("magick"));
+        Assert.Null(ProcessTree.TimeoutFor("yt-dlp"));
+        Assert.Null(ProcessTree.TimeoutFor(@".\bin\yt-dlp.exe"));
+
+        TimeSpan saved = ProcessTree.VocoderTimeout;
+        Process? spinner = null;
+        Process? quick = null;
+        try
+        {
+            ProcessTree.VocoderTimeout = TimeSpan.FromSeconds(2);
+            spinner = Start(new ProcessStartInfo(FindProgram("python3"), "-c \"import time\nwhile True:\n time.sleep(0.2)\n\"")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            });
+            var watch = Stopwatch.StartNew();
+            bool vocoderDone = ProcessTree.WaitForExit(spinner, ProcessTree.TimeoutFor("vocoder"));
+            watch.Stop();
+            Assert.False(vocoderDone);
+            Assert.True(spinner.HasExited);
+            Assert.InRange(watch.Elapsed.TotalSeconds, 1, 8);
+
+            quick = Start(new ProcessStartInfo(FindProgram("sleep"), "0.3")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            watch.Restart();
+            bool ffmpegDone = ProcessTree.WaitForExit(quick, ProcessTree.TimeoutFor("ffmpeg"));
+            watch.Stop();
+            Assert.True(ffmpegDone);
+            Assert.True(quick.HasExited);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            ProcessTree.VocoderTimeout = saved;
+            KillQuiet(spinner);
+            KillQuiet(quick);
+        }
+    }
+
     static Process StartSleep()
     {
         return Start(new ProcessStartInfo(FindProgram("sleep"), "30")

@@ -15,12 +15,27 @@ namespace NonsensicalVideoGenerator
         static readonly List<Process> Owned = new();
 
         /// <summary>
-        /// DesktopGL budget for one <c>Command.Call</c>. A no-argument vocoder
-        /// used to spin on EOF; this kills that process and returns.
-        /// Real encodes share the same budget. Tests pass a shorter span to
-        /// <see cref="WaitForExit"/>.
+        /// Bound for a vocoder launch. A no-argument vocoder used to spin on
+        /// EOF. ffmpeg, ffprobe, magick, and yt-dlp are not bounded; cancel
+        /// still goes through <see cref="KillOwned"/>.
         /// </summary>
-        public static TimeSpan CommandTimeout { get; set; } = TimeSpan.FromMinutes(30);
+        public static TimeSpan VocoderTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// Vocoder gets <see cref="VocoderTimeout"/>. Every other tool waits
+        /// until it exits. <paramref name="fileName"/> may be a path.
+        /// </summary>
+        public static TimeSpan? TimeoutFor(string? fileName)
+        {
+            string name = fileName ?? "";
+            int slash = Math.Max(name.LastIndexOf('/'), name.LastIndexOf('\\'));
+            if (slash >= 0 && slash < name.Length - 1)
+                name = name[(slash + 1)..];
+            if (name.Equals("vocoder", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("vocoder.exe", StringComparison.OrdinalIgnoreCase))
+                return VocoderTimeout;
+            return null;
+        }
 
         public static void Track(Process process)
         {
@@ -60,13 +75,18 @@ namespace NonsensicalVideoGenerator
         }
 
         /// <summary>
-        /// Returns true when the process exits on its own. On timeout, kills
-        /// that process tree and returns false.
+        /// Returns true when the process exits on its own. A null timeout
+        /// waits without a budget. A timeout kills that process tree and
+        /// returns false.
         /// </summary>
         public static bool WaitForExit(Process process, TimeSpan? timeout = null)
         {
-            TimeSpan budget = timeout ?? CommandTimeout;
-            bool exited = process.WaitForExit(budget);
+            if (timeout is null)
+            {
+                process.WaitForExit();
+                return true;
+            }
+            bool exited = process.WaitForExit(timeout.Value);
             if (!exited)
             {
                 try

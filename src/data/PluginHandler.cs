@@ -177,12 +177,17 @@ namespace NonsensicalVideoGenerator
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-#if DESKTOPGL
-                if (!ProcessTree.WaitForExit(process))
-                    ConsoleOutput.WriteLine("Command timed out and was killed: " + startInfo.FileName, Color.Red);
-#else
-                process.WaitForExit();
-#endif
+                // Only vocoder is bounded. A long ffmpeg or magick run must not be killed.
+                TimeSpan? budget = ProcessTree.TimeoutFor(startInfo.FileName);
+                if (budget is TimeSpan limit)
+                {
+                    if (!ProcessTree.WaitForExit(process, limit))
+                        ConsoleOutput.WriteLine("Command timed out and was killed: " + startInfo.FileName, Color.Red);
+                }
+                else
+                {
+                    process.WaitForExit();
+                }
                 return new string[] { output, error };
             }
             else
@@ -298,12 +303,7 @@ namespace NonsensicalVideoGenerator
 #endif
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
-#if DESKTOPGL
-                    if (!ProcessTree.WaitForExit(process))
-                        ConsoleOutput.WriteLine("yt-dlp timed out and was killed.", Color.Red);
-#else
                     process.WaitForExit();
-#endif
                 }
                 else
                 {
