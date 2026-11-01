@@ -110,7 +110,6 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Speech" Version="8.0.0" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
     <PackageReference Include="WindowsAPICodePack" Version="8.0.4" Condition="'$(NvgPlatform)' != 'DesktopGL'" />
-    <PackageReference Include="SharpCompress" Version="0.37.2" />
   </ItemGroup>
   <ItemGroup Condition="'$(NvgPlatform)' != 'DesktopGL'">
    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />

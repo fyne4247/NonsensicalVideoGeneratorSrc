@@ -11,7 +11,6 @@ using System.Linq;
 using System.Reflection;
 using System.Globalization;
 using MonoGame.Extended.VideoPlayback;
-using SharpCompress;
 
 namespace NonsensicalVideoGenerator
 {
