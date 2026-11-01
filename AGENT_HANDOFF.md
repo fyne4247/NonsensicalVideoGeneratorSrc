@@ -569,3 +569,19 @@ Tasks:
 2. **Restart.** On DesktopGL, the scale-change restart must relaunch the app itself, not `steam://run`. macOS: `open -n` the enclosing `.app`, passing through `NVG_DATA_DIR` if it is set (`open --env`). Linux: start the same executable with the same env. Windows keeps the existing Steam behaviour unchanged. Put the decision logic in `AppRestart.cs` with unit tests.
 GUI rule: launching the app with no synthetic input is allowed (hard-8 may launch too; that's fine). Use temp data roots only and never the real `~/Library/Application Support`. Don't click or type into the app.
 Acceptance: the root cause stated with log evidence. After the fix, the OpenAL log and the audio-out assertion show playback on arm64 (and the backend on Linux). A rebuilt arm64 `.app` goes in a NEW dir for the owner to retest by ear. Restart unit tests pass. `dotnet test` for both test projects on Mac and 750 passes. The DesktopGL build has 0 errors. Report the commands and pass/fail summary. Opus runs the Windows VM build afterwards (OptionsPage/GlobalContent are shared code).
+
+### Owner test, part 2: generation and media player (Opus, 2026-11-01)
+- The owner relaunched, generated a video, and watched it in the in-app media player: **no audio there either**. That's the same defect as hard-9 task 1 (FramePlayer SoundEffect path), so hard-9's acceptance now includes media-player audio.
+- The generation completed through iteration0.mp4, but console.txt (`/tmp/nvg-owner-gui/data/console.txt`) shows effect failures on DesktopGL:
+  - `Invalid subType` from `Plugin.DownloadFileSync` → `Command.Call` (`PluginHandler.cs:~205-230`), on clips 2/3/5/8/12/18. Validation compares `pair.Value == rootType + "\\" + subType`. Plugin-registered library paths (Fear/Recall/Boom/Spadinner…, `PluginHandler.cs:~1859`) probably use `/` on Mac/Linux, so the match never succeeds. Called from recall.lua.
+  - `Error opening input file ../...` ("Is a directory"): an ffmpeg command gets a truncated/odd relative path.
+  - `dance.lua` clip 16: `Error opening input file music.wav` (`baseplugins/user/stock/dance.lua:65`), so its music-extraction step never produced the file in the job dir.
+  Unknown: whether any of these also happen on Windows (the backslash compare suggests not, since it works there).
+
+### flow-1101-0201-hard-10 (Grok 4.7, hard): plugin/effect path failures on DesktopGL
+Why hard: cross-platform path semantics across the C# plugin bridge and Lua addons. Fixes must keep Windows byte-for-byte compatible for existing Workshop addons.
+Base: team branch HEAD.
+Owns: `src/data/PluginHandler.cs`, `src/data/LibraryData.cs`, `baseplugins/**`, new test file `tests/NvgPlatform.Tests/PluginPathTests.cs`. The one-line test csproj addition is a known trivial conflict for Sol.
+Must not touch: files owned by hard-8 (`Program.cs`, `UserInterface.cs`, `src/backend/platform/*` except reading) or hard-9 (`OptionsPage.cs`, `GlobalContent.cs`, `FramePlayer.cs`, `platform/AppRestart.cs`, `platform/AudioDiagnostics.cs`), `tools/**`, `AGENT_HANDOFF.md`, the main checkout. If you need `NvgPaths` changed, ask Opus. Delete nothing.
+Tasks: reproduce each of the three failures from the owner's console.txt (read it; don't modify that data dir). Find the root cause and fix it narrowly, separator-agnostic (accept `\` and `/`), with Windows behaviour unchanged. Prefer fixing in C# so third-party addons work unmodified. Change stock Lua only if the fault is in the addon.
+Acceptance: unit tests for the subType validation with both separators. A headless/CLI or temp-data-root generation run on Mac arm64 whose console shows none of the three errors (launch with no synthetic input; temp `NVG_DATA_DIR` only). Linux 750 check of the same. `dotnet test` both test projects on Mac and 750; DesktopGL build 0 errors. Report commands and pass/fail. Opus runs the Windows VM build afterwards.
