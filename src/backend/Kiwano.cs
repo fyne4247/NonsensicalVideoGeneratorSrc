@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using Microsoft.Xna.Framework;
 using Steamworks;
 
@@ -13,7 +12,7 @@ namespace NonsensicalVideoGenerator
         // It also checks for the presence of the steam_appid.txt file, which should not be present in release builds.
         public static void Check()
         {
-            string cwd = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".");
+            string bundle = AppPaths.Resources;
             ConsoleOutput.WriteLine("Kiwano: Preparing for crash reporting...", Color.Transparent);
             if(SteamManager.initialized)
             {
@@ -32,10 +31,10 @@ namespace NonsensicalVideoGenerator
                 // Not connected to Steam, can't get their SteamID.
                 ConsoleOutput.WriteLine("Kiwano: Not connected", Color.Transparent);
             }
-            if(File.Exists(Path.Combine(cwd, "steam_appid.txt")))
+            if(File.Exists(Path.Combine(bundle, "steam_appid.txt")))
             {
                 // Release builds should NEVER have this file.
-                ConsoleOutput.WriteLine("Kiwano: Steam app ID: "+File.ReadAllText(Path.Combine(cwd, "steam_appid.txt")), Color.Transparent);
+                ConsoleOutput.WriteLine("Kiwano: Steam app ID: "+File.ReadAllText(Path.Combine(bundle, "steam_appid.txt")), Color.Transparent);
             }
         }
     }

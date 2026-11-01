@@ -1,5 +1,4 @@
 using System.IO;
-using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -35,7 +34,7 @@ namespace NonsensicalVideoGenerator
                         {
                             // Search for the next logical entry in locales/*.json
                             string currentLocale = L.GetLocale().name;
-                            string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", L.localeFolder);
+                            string path = Path.Combine(AppPaths.Resources, L.localeFolder);
                             if(!File.Exists(Path.Combine(path, currentLocale + ".json")))
                                 currentLocale = L.defaultLocale;
                             string[] files = Directory.GetFiles(path, "*.json");
@@ -299,7 +298,7 @@ namespace NonsensicalVideoGenerator
                         {
                             // Open console.txt.
                             GlobalContent.PlaySound("Select");
-                            string consoleLogFile = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "console.txt");
+                            string consoleLogFile = Path.Combine(AppPaths.Writable, "console.txt");
                             if(File.Exists(consoleLogFile))
                                 System.Diagnostics.Process.Start("notepad", consoleLogFile);
                             return true;

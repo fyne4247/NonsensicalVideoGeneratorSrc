@@ -6,7 +6,6 @@ using System.IO;
 using System.Diagnostics;
 using System.Threading;
 using System.Text.RegularExpressions;
-using System.Reflection;
 using MonoGame.Extended.VideoPlayback;
 using Microsoft.Xna.Framework;
 
@@ -57,7 +56,7 @@ namespace NonsensicalVideoGenerator
         public BackgroundWorker? timeoutWorker { get; set; }
         public BackgroundWorker? killWorker { get; set; }
         public int timeout = 0;
-        public string tempOutput = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", "video", "renders", "temp.mp4");
+        public string tempOutput = Path.Combine(AppPaths.Writable, "library", "video", "renders", "temp.mp4");
         public static string oldExportParams = "-c:v libx264 -crf 18 -preset veryfast -ar 32000 -shortest -fflags +genpts";
         public static string betterExportParams = "-vcodec libx264 -crf 28 -preset ultrafast -ac 2 -c:a aac -b:a 160k -ar 44100 -map_metadata -1 -reset_timestamps 1 -shortest -fflags +genpts";
         public bool audioSync = true;
@@ -1270,7 +1269,7 @@ namespace NonsensicalVideoGenerator
                 FramePlayer.Stop();
                 forceConcatenate = false;
                 timeout = int.Parse(SaveData.saveValues["TimeOut"], CultureInfo.InvariantCulture);
-                tempOutput = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", "video", "renders", Global.videoTitle + ".mp4");
+                tempOutput = Path.Combine(AppPaths.Writable, "library", "video", "renders", Global.videoTitle + ".mp4");
                 timeoutWorker.RunWorkerAsync();
                 effectTestThreadWorker.RunWorkerAsync();
                 ConsoleOutput.WriteLine("Generation started.", Color.Green);
@@ -1316,7 +1315,7 @@ namespace NonsensicalVideoGenerator
                 startInfo.UseShellExecute = false;
                 startInfo.RedirectStandardOutput = true;
                 startInfo.RedirectStandardError = true;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                startInfo.WorkingDirectory = AppPaths.Writable;
                 startInfo.CreateNoWindow = true;
                 process.StartInfo = startInfo;
                 string s = "";
@@ -1370,7 +1369,7 @@ namespace NonsensicalVideoGenerator
                         + " \"" + output + "\"";
                 startInfo.UseShellExecute = false;
                 startInfo.RedirectStandardError = true;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                startInfo.WorkingDirectory = AppPaths.Writable;
                 startInfo.CreateNoWindow = true;
                 process.StartInfo = startInfo;
                 process.ErrorDataReceived += (sender, e) =>
@@ -1414,7 +1413,7 @@ namespace NonsensicalVideoGenerator
                 startInfo.UseShellExecute = false;
                 startInfo.RedirectStandardOutput = true;
                 startInfo.RedirectStandardError = true;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                startInfo.WorkingDirectory = AppPaths.Writable;
                 startInfo.CreateNoWindow = true;
                 process.StartInfo = startInfo;
                 string s = "";
@@ -1474,7 +1473,7 @@ namespace NonsensicalVideoGenerator
                         + " \"" + output + "\"";
                 startInfo.UseShellExecute = false;
                 startInfo.RedirectStandardError = true;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                startInfo.WorkingDirectory = AppPaths.Writable;
                 startInfo.CreateNoWindow = true;
                 process.StartInfo = startInfo;
                 process.ErrorDataReceived += (sender, e) =>
@@ -1576,7 +1575,7 @@ namespace NonsensicalVideoGenerator
                                 + " \"" + Path.Combine(temporaryDirectory, "concat" + i2 + ".mp4") + "\"";
                         startInfo2.UseShellExecute = false;
                         startInfo2.RedirectStandardError = true;
-                        startInfo2.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                        startInfo2.WorkingDirectory = AppPaths.Writable;
                         startInfo2.CreateNoWindow = true;
                         process2.StartInfo = startInfo2;
                         process2.ErrorDataReceived += (sender, e) =>
@@ -1683,7 +1682,7 @@ namespace NonsensicalVideoGenerator
             startInfo.Arguments = concat + " \"" + Path.Combine(temporaryDirectory, "iteration" + iteration + ".mp4") + "\"";
             startInfo.UseShellExecute = false;
             startInfo.RedirectStandardError = true;
-            startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+            startInfo.WorkingDirectory = AppPaths.Writable;
             startInfo.CreateNoWindow = true;
             process.StartInfo = startInfo;
             process.ErrorDataReceived += (sender, e) =>
@@ -1745,7 +1744,7 @@ namespace NonsensicalVideoGenerator
                 startInfo2.Arguments = concat2 + " \"" + output + "\"";
                 startInfo2.UseShellExecute = false;
                 startInfo2.RedirectStandardError = true;
-                startInfo2.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                startInfo2.WorkingDirectory = AppPaths.Writable;
                 startInfo2.CreateNoWindow = true;
                 process2.StartInfo = startInfo2;
                 process2.ErrorDataReceived += (sender, e) =>
@@ -1793,7 +1792,7 @@ namespace NonsensicalVideoGenerator
                         + " -y \"" + overlayed_video + "\"";
                 startInfo.UseShellExecute = false;
                 startInfo.RedirectStandardError = true;
-                startInfo.WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+                startInfo.WorkingDirectory = AppPaths.Writable;
                 startInfo.CreateNoWindow = true;
                 process.StartInfo = startInfo;
                 process.ErrorDataReceived += (sender, e) =>
@@ -1861,7 +1860,7 @@ namespace NonsensicalVideoGenerator
                     Arguments =  "-i \"" + media + "\" " + rootTypeFilters[rootType] + " -y \"" + output + "\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
-                    WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
+                    WorkingDirectory = AppPaths.Writable,
                     CreateNoWindow = true
                 };
                 process.StartInfo = startInfo;
@@ -1900,7 +1899,7 @@ namespace NonsensicalVideoGenerator
                     Arguments = $"-ss {startTime.ToString(CultureInfo.InvariantCulture)} -t {(endTime - startTime).ToString(CultureInfo.InvariantCulture)} -i \"{media}\" -i \"{templateImage}\" -filter_complex \"{rootTypeFilters[rootType]}[thumb];[thumb][1:v]overlay[finished]\" -map \"[finished]\" -r {fps.ToString(CultureInfo.InvariantCulture)} -y \"{output}\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
-                    WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
+                    WorkingDirectory = AppPaths.Writable,
                     CreateNoWindow = true
                 };
                 Process process = new Process
@@ -1940,7 +1939,7 @@ namespace NonsensicalVideoGenerator
                             + " -y \"" + output + "\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
-                    WorkingDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".",
+                    WorkingDirectory = AppPaths.Writable,
                     CreateNoWindow = true
                 };
                 Process process = new Process()
