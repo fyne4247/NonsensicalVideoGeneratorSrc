@@ -22,7 +22,7 @@ natives. Workshop and achievements stay unavailable.
 - Source: https://code.videolan.org/videolan/x264 commit `b35605ace3ddf7c1a5d67a2eb553f034aef41d55` (stable)
 - Licence: GPL-2.0-or-later
 - Static PIC library (`tools/x264/build-x264.sh`, `--disable-cli`). Linked into FFmpeg. The x264 program is not shipped.
-- On x86_64, a missing nasm configures `--disable-asm`. aarch64 keeps the platform assembler.
+- On x86_64, a missing nasm configures `--disable-asm`. aarch64 keeps the platform assembler. An osx-x64 build on an arm64 Mac is this case: `clang -arch x86_64` with `--host` set from `-dumpmachine`, and no nasm.
 
 ### frei0r v2.3.3
 
@@ -45,7 +45,7 @@ natives. Workshop and achievements stay unavailable.
 - Git tag commit: `a0c4bf729a26a5c2feb28b0365b47a8db736078a`
 - Licence: ImageMagick License
 - Static `bin/magick` from `tools/magick/build-magick.sh`. No X11.
-- Delegates, also built from source: zlib 1.3.1, libpng 1.6.47, libjpeg-turbo 3.1.0.
+- Delegates, also built from source: zlib 1.3.1, libpng 1.6.47, libjpeg-turbo 3.1.0. An osx-x64 cross build passes `--host` from the compiler triple. libjpeg-turbo SIMD is off when nasm is missing.
 
 ## Official release binaries, pinned
 
@@ -54,7 +54,7 @@ Bundled only when the upstream checksum matches and `file(1)` shows the architec
 ### yt-dlp 2026.10.21
 
 - Licence: The Unlicense
-- macOS: `yt-dlp_macos` (universal x86_64 + arm64), SHA-256 `7a6fe71d7d680f1fb0ac18d4949873d77db2859e90017c0f44bd94b23be4ee40`
+- macOS: `yt-dlp_macos` (universal x86_64 + arm64), SHA-256 `7a6fe71d7d680f1fb0ac18d4949873d77db2859e90017c0f44bd94b23be4ee40`. The osx-x64 package keeps only the x86_64 slice (`lipo -thin`).
 - Linux x64: `yt-dlp_linux`, SHA-256 `d8bd33fca9d5b23bd5b9952b3fca36db5c46331933fda9f598a3da14ce2c243f`
 - Checksums: https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/SHA2-256SUMS
 - Installed as `bin/yt-dlp`

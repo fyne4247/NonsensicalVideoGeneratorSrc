@@ -209,13 +209,17 @@ nvg_stage_frei0r() {
     fi
 }
 
+# $1 output dir  $2 scratch  $3 optional CC
+# The third argument is the same compiler the media builds use, so an
+# osx-x64 cross build does not leave an arm64 vocoder in the x64 app.
 nvg_build_vocoder() {
     out=$1
     scratch=$2
+    cc=${3:-/usr/bin/cc}
     (
         unset PKG_CONFIG_PATH DYLD_LIBRARY_PATH LD_LIBRARY_PATH || true
         export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
-        export CC="/usr/bin/cc"
+        export CC="$cc"
         /bin/sh "$ROOT/tools/vocoder/build-vocoder.sh" "$out" "$scratch"
     )
 }

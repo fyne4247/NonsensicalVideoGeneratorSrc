@@ -85,6 +85,44 @@ pick_pkg_config() {
 }
 PKG_CONFIG_BIN=$(pick_pkg_config)
 
+# uname stays arm64 when CC is `clang -arch x86_64`. Autotools config.guess
+# would then enable ARM NEON in libpng. Pass --host from the compiler triple
+# only in that cross case. libjpeg-turbo's CMake reads the processor the
+# same way, and its x86 SIMD needs nasm, which this build does not require.
+host_arch=$(uname -m)
+case $host_arch in
+    aarch64) host_arch=arm64 ;;
+    amd64) host_arch=x86_64 ;;
+esac
+target_arch=$host_arch
+cc_triple=$("$CC" -dumpmachine 2>/dev/null || true)
+case $cc_triple in
+    x86_64*) target_arch=x86_64 ;;
+    aarch64*|arm64*) target_arch=arm64 ;;
+esac
+if [ -n "${NVG_MACH_ARCH:-}" ]; then
+    target_arch=$NVG_MACH_ARCH
+fi
+HOST_FLAGS=""
+JPEG_ARCH_ARGS=""
+SIMD_NOTE="simd=default"
+if [ "$target_arch" != "$host_arch" ]; then
+    [ -n "$cc_triple" ] || { echo "error: $CC -dumpmachine failed" >&2; exit 1; }
+    build_triple=$(/usr/bin/cc -dumpmachine)
+    HOST_FLAGS="--host=$cc_triple --build=$build_triple"
+    echo "==> cross compile ImageMagick delegates for $target_arch on $host_arch"
+    if [ "$(uname -s)" = "Darwin" ]; then
+        JPEG_ARCH_ARGS="-DCMAKE_OSX_ARCHITECTURES=$target_arch -DCMAKE_SYSTEM_PROCESSOR=$target_arch"
+    else
+        JPEG_ARCH_ARGS="-DCMAKE_SYSTEM_PROCESSOR=$target_arch"
+    fi
+    if [ "$target_arch" = "x86_64" ] && ! command -v nasm >/dev/null 2>&1; then
+        JPEG_ARCH_ARGS="$JPEG_ARCH_ARGS -DWITH_SIMD=OFF"
+        SIMD_NOTE="simd=off reason=nasm-missing-on-$target_arch cross-from-$host_arch"
+        echo "==> nasm not found; libjpeg-turbo SIMD off"
+    fi
+fi
+
 sha256_file() {
     if command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$1" | awk '{ print $1 }'
@@ -114,7 +152,7 @@ fetch() {
     echo "==> checksum ok $name"
 }
 
-SIGNATURE="magick=$MAGICK_VERSION zlib=$ZLIB_VERSION png=$LIBPNG_VERSION jpeg=$JPEG_VERSION static=yes"
+SIGNATURE="magick=$MAGICK_VERSION zlib=$ZLIB_VERSION png=$LIBPNG_VERSION jpeg=$JPEG_VERSION static=yes arch=$target_arch $SIMD_NOTE"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
 if [ -f "$OUTPUT_DIR/NVG-MAGICK.txt" ] && grep -F -q "signature=$SIGNATURE" "$OUTPUT_DIR/NVG-MAGICK.txt"; then
@@ -140,6 +178,11 @@ echo "==> zlib $ZLIB_VERSION"
 tar -xf "$SCRATCH_DIR/zlib-$ZLIB_VERSION.tar.gz" -C "$SCRATCH_DIR"
 (
     cd "$SCRATCH_DIR/zlib-$ZLIB_VERSION"
+    export CC="$CC"
+    if [ -n "$HOST_FLAGS" ]; then
+        export CFLAGS="-arch $target_arch ${CFLAGS:-}"
+        export LDFLAGS="-arch $target_arch ${LDFLAGS:-}"
+    fi
     ./configure --prefix="$DEPS" --static
     make -j"$JOBS"
     make install
@@ -168,9 +211,14 @@ tar -xf "$SCRATCH_DIR/libpng-$LIBPNG_VERSION.tar.gz" -C "$SCRATCH_DIR"
     export CC="$CC"
     export CPPFLAGS="-I$DEPS/include"
     export LDFLAGS="-L$DEPS/lib"
+    if [ -n "$HOST_FLAGS" ]; then
+        export CFLAGS="-arch $target_arch ${CFLAGS:-}"
+        export LDFLAGS="-arch $target_arch $LDFLAGS"
+    fi
     export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
     export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig"
-    ./configure --prefix="$DEPS" --disable-shared --enable-static --with-zlib-prefix="$DEPS"
+    # shellcheck disable=SC2086
+    ./configure --prefix="$DEPS" --disable-shared --enable-static --with-zlib-prefix="$DEPS" $HOST_FLAGS
     make -j"$JOBS"
     make install
 ) || {
@@ -192,6 +240,7 @@ tar -xf "$SCRATCH_DIR/libjpeg-turbo-$JPEG_VERSION.tar.gz" -C "$SCRATCH_DIR"
     -DWITH_JAVA=OFF \
     -DCMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH=OFF \
     -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local" \
+    $JPEG_ARCH_ARGS \
     || {
         echo "error: delegate libjpeg-turbo $JPEG_VERSION could not be configured" >&2
         exit 1
@@ -211,6 +260,11 @@ tar -xf "$SCRATCH_DIR/ImageMagick-$MAGICK_VERSION.tar.xz" -C "$SCRATCH_DIR"
     export CXX="$CXX"
     export CPPFLAGS="-I$DEPS/include"
     export LDFLAGS="-L$DEPS/lib"
+    if [ -n "$HOST_FLAGS" ]; then
+        export CFLAGS="-arch $target_arch ${CFLAGS:-}"
+        export CXXFLAGS="-arch $target_arch ${CXXFLAGS:-}"
+        export LDFLAGS="-arch $target_arch $LDFLAGS"
+    fi
     export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
     export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig"
     ./configure \
@@ -245,7 +299,8 @@ tar -xf "$SCRATCH_DIR/ImageMagick-$MAGICK_VERSION.tar.xz" -C "$SCRATCH_DIR"
         --with-zlib \
         --with-png \
         --with-jpeg \
-        --disable-docs
+        --disable-docs \
+        $HOST_FLAGS
     make -j"$JOBS"
     make install
 ) || {
@@ -275,7 +330,17 @@ cp "$SCRATCH_DIR/ImageMagick-$MAGICK_VERSION/LICENSE" "$LIC/ImageMagick-LICENSE"
     echo "zlib=$ZLIB_VERSION $ZLIB_SHA256 $ZLIB_URL license=zlib"
     echo "libpng=$LIBPNG_VERSION $LIBPNG_SHA256 $LIBPNG_URL license=libpng"
     echo "libjpeg-turbo=$JPEG_VERSION $JPEG_SHA256 $JPEG_URL license=BSD-3-Clause-AND-IJG-AND-zlib"
-    echo "note=Static magick. Delegates are zlib, libpng and libjpeg-turbo, built from the pinned tarballs. No X11 and no Homebrew libraries."
+    echo "arch=$target_arch"
+    echo "$SIMD_NOTE"
+    echo "note=Static magick. Delegates are zlib, libpng and libjpeg-turbo, built from the pinned tarballs. No X11 and no Homebrew libraries. An osx-x64 cross build passes --host from the compiler triple because config.guess follows uname. libjpeg-turbo SIMD is off when nasm is missing."
 } > "$OUTPUT_DIR/NVG-MAGICK.txt"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    got=$(lipo -archs "$OUTPUT_DIR/bin/magick" | tr -d '[:space:]')
+    if [ "$got" != "$target_arch" ]; then
+        echo "error: magick is [$got], expected $target_arch" >&2
+        exit 1
+    fi
+fi
 
 echo "==> installed ImageMagick $MAGICK_VERSION into $OUTPUT_DIR"
