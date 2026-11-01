@@ -19,7 +19,13 @@ namespace NonsensicalVideoGenerator
         /// <summary>Name of the output the device is playing on (ALC_ALL_DEVICES_SPECIFIER).</summary>
         string? DeviceName(IntPtr device);
 
-        /// <summary>Name of the system default output (ALC_DEFAULT_ALL_DEVICES_SPECIFIER).</summary>
+        /// <summary>
+        /// Cheap id of the system default output (CoreAudio AudioDeviceID). Zero when unknown,
+        /// which makes the follower do the full name check every poll.
+        /// </summary>
+        long DefaultToken();
+
+        /// <summary>Name of the system default output (ALC_DEFAULT_ALL_DEVICES_SPECIFIER). Enumerates devices.</summary>
         string? DefaultName();
 
         /// <summary>Moves the device to the current default output. Object state is kept.</summary>
@@ -33,7 +39,8 @@ namespace NonsensicalVideoGenerator
     /// in 1.22 and in current releases. Windows uses XAudio and is untouched. The bundled 1.22
     /// has alcReopenDeviceSOFT, which moves the device to another output while keeping every
     /// buffer, source and the context, so no SoundEffect or Song is re-created.
-    /// A timer polls the default output name about once a second and reopens on a change.
+    /// A timer reads the CoreAudio default output id about once a second (one cheap call). Only when
+    /// that id changes does it compare device names and call alcReopenDeviceSOFT.
     /// A failed reopen backs off and is retried; it never throws into the game.
     ///
     /// Linux: the bundled libopenal is 1.17.1, which has no reopen. Its PulseAudio backend
@@ -53,9 +60,13 @@ namespace NonsensicalVideoGenerator
         readonly Func<long> clock;
         readonly Action<string> log;
         readonly object gate = new();
+        readonly System.Collections.Concurrent.ConcurrentQueue<string> pending = new();
         Timer? timer;
         bool polling;
+        bool stopped;
         bool disabled;
+        bool checkedOnce;
+        long lastToken;
         string? announcedDevice;
         // Default name we last tried to move to, and when we may try that again.
         string? attemptedDefault;
@@ -67,7 +78,28 @@ namespace NonsensicalVideoGenerator
         {
             this.api = api;
             this.clock = clock ?? (() => Environment.TickCount64);
-            this.log = log ?? Console.WriteLine;
+            this.log = log ?? Enqueue;
+        }
+
+        void Enqueue(string message)
+        {
+            pending.Enqueue(message);
+            while (pending.Count > 50 && pending.TryDequeue(out _))
+            {
+            }
+        }
+
+        /// <summary>
+        /// Hands queued log lines to <paramref name="sink"/>. Call from the game thread
+        /// (for example once per Update) so ConsoleOutput is never touched from the timer thread.
+        /// </summary>
+        public static void FlushLog(Action<string> sink)
+        {
+            AudioOutputFollower? f = instance;
+            if (f == null)
+                return;
+            while (f.pending.TryDequeue(out string? line))
+                sink(line);
         }
 
         public int ReopenCount { get; private set; }
@@ -91,17 +123,26 @@ namespace NonsensicalVideoGenerator
                 var follower = new AudioOutputFollower(new OpenAlApi());
                 follower.StartTimer();
                 instance = follower;
+                // A SIGTERM or Environment.Exit skips the game's own shutdown. Join the poller
+                // before the runtime's exit handlers close OpenAL.
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => StopShared();
                 return true;
             }
         }
 
+        /// <summary>
+        /// Stops the poller and waits (up to 5 s) for a poll in flight, so a reopen cannot race
+        /// OpenAL's device teardown. Call before audio shuts down. Safe to call twice.
+        /// </summary>
         public static void StopShared()
         {
+            AudioOutputFollower? f;
             lock (typeof(AudioOutputFollower))
             {
-                instance?.Dispose();
+                f = instance;
                 instance = null;
             }
+            f?.Dispose();
         }
 
         /// <summary>The poller only runs on macOS, and NVG_AUDIO_FOLLOW=0 turns it off.</summary>
@@ -174,10 +215,24 @@ namespace NonsensicalVideoGenerator
 
         public void Dispose()
         {
+            Timer? t;
             lock (gate)
             {
-                timer?.Dispose();
+                stopped = true;
+                t = timer;
                 timer = null;
+            }
+            t?.Dispose();
+            // Wait (up to 5 s) for a poll that is already inside OpenAL.
+            long deadline = Environment.TickCount64 + 5000;
+            lock (gate)
+            {
+                while (polling)
+                {
+                    long left = deadline - Environment.TickCount64;
+                    if (left <= 0 || !Monitor.Wait(gate, (int)left))
+                        break;
+                }
             }
         }
 
@@ -186,7 +241,7 @@ namespace NonsensicalVideoGenerator
         {
             lock (gate)
             {
-                if (polling || disabled)
+                if (polling || disabled || stopped)
                     return;
                 polling = true;
             }
@@ -208,7 +263,10 @@ namespace NonsensicalVideoGenerator
             finally
             {
                 lock (gate)
+                {
                     polling = false;
+                    Monitor.PulseAll(gate);
+                }
             }
         }
 
@@ -224,6 +282,11 @@ namespace NonsensicalVideoGenerator
                 return;
             }
 
+            long token = api.DefaultToken();
+            bool retryDue = attemptedDefault != null;
+            if (checkedOnce && token != 0 && token == lastToken && !retryDue)
+                return;
+
             string? current = api.DeviceName(device);
             if (announcedDevice != current && !string.IsNullOrEmpty(current))
             {
@@ -234,6 +297,8 @@ namespace NonsensicalVideoGenerator
             string? wanted = api.DefaultName();
             if (string.IsNullOrEmpty(wanted) || string.IsNullOrEmpty(current))
                 return;
+            lastToken = token;
+            checkedOnce = true;
             if (string.Equals(wanted, current, StringComparison.Ordinal))
             {
                 attemptedDefault = null;
@@ -256,7 +321,7 @@ namespace NonsensicalVideoGenerator
             {
                 ReopenCount++;
                 announcedDevice = after;
-                log("Audio output changed: " + current + " -> " + after);
+                log("Audio output moved: " + current + " -> " + after);
                 if (!string.Equals(after, wanted, StringComparison.Ordinal))
                     ScheduleRetry(now);
                 else
@@ -371,6 +436,11 @@ namespace NonsensicalVideoGenerator
                     : name;
             }
 
+            public long DefaultToken()
+            {
+                return OperatingSystem.IsMacOS() ? MacDefaultOutputId() : 0;
+            }
+
             public string? DefaultName()
             {
                 return Marshal.PtrToStringUTF8(getString!(IntPtr.Zero, AlcDefaultAllDevicesSpecifier));
@@ -380,6 +450,34 @@ namespace NonsensicalVideoGenerator
             {
                 return reopen!(device, IntPtr.Zero, IntPtr.Zero) != 0;
             }
+        }
+
+        // ---- CoreAudio default output id (one cheap call, no enumeration) ----
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct CoreAudioAddress
+        {
+            public uint Selector;
+            public uint Scope;
+            public uint Element;
+        }
+
+        [DllImport("/System/Library/Frameworks/CoreAudio.framework/CoreAudio", EntryPoint = "AudioObjectGetPropertyData")]
+        static extern int AudioObjectGetPropertyData(uint objectId, ref CoreAudioAddress address,
+            uint qualifierSize, IntPtr qualifier, ref uint dataSize, out uint data);
+
+        /// <summary>kAudioHardwarePropertyDefaultOutputDevice as an AudioDeviceID, or 0 on failure.</summary>
+        static long MacDefaultOutputId()
+        {
+            var address = new CoreAudioAddress
+            {
+                Selector = 0x644F7574, // 'dOut'
+                Scope = 0x676C6F62, // 'glob'
+                Element = 0,
+            };
+            uint size = sizeof(uint);
+            int status = AudioObjectGetPropertyData(1, ref address, 0, IntPtr.Zero, ref size, out uint id);
+            return status == 0 ? id : 0;
         }
 
         // ---- locating the already-loaded libopenal ----

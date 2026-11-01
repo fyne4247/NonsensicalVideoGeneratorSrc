@@ -256,6 +256,10 @@ namespace NonsensicalVideoGenerator
         }
         protected override void UnloadContent()
         {
+#if DESKTOPGL
+            // Join the output follower before OpenAL closes so a reopen cannot race teardown.
+            AudioOutputFollower.StopShared();
+#endif
             if(_spriteBatch != null)
                 _spriteBatch.Dispose();
             // Unload all content.
@@ -320,6 +324,7 @@ namespace NonsensicalVideoGenerator
         {
 #if DESKTOPGL
             GraphicsThread.Pump();
+            AudioOutputFollower.FlushLog(line => ConsoleOutput.WriteLine(line, Color.Transparent));
 #endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()
@@ -550,6 +555,9 @@ namespace NonsensicalVideoGenerator
                 args.Cancel = true;
                 return;
             }
+#if DESKTOPGL
+            AudioOutputFollower.StopShared();
+#endif
             base.OnExiting(sender, args);
             if(SteamManager.initialized)
                 SteamManager.Shutdown();

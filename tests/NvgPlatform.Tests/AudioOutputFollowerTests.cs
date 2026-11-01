@@ -11,7 +11,14 @@ public sealed class AudioOutputFollowerTests
         public IntPtr Device = new IntPtr(0x1000);
         public bool Reopenable = true;
         public string? Current = "Cassette";
-        public string? Default = "Cassette";
+        string? def = "Cassette";
+        public long Token = 1;
+        public int NameQueries;
+        public string? Default
+        {
+            get => def;
+            set { def = value; Token++; }
+        }
         public bool ReopenWorks = true;
         public bool ReopenMoves = true;
         public bool Throw;
@@ -26,7 +33,8 @@ public sealed class AudioOutputFollowerTests
         }
         public bool SupportsReopen(IntPtr device) => Reopenable;
         public string? DeviceName(IntPtr device) => Current;
-        public string? DefaultName() => Default;
+        public long DefaultToken() => Token;
+        public string? DefaultName() { NameQueries++; return def; }
         public bool ReopenDefault(IntPtr device)
         {
             Reopens++;
@@ -79,7 +87,7 @@ public sealed class AudioOutputFollowerTests
         Assert.Equal(1, r.Alc.Reopens);
         Assert.Equal(1, r.Follower.ReopenCount);
         Assert.Equal("Dime 3", r.Alc.Current);
-        Assert.Contains("Audio output changed: Cassette -> Dime 3", r.Log);
+        Assert.Contains("Audio output moved: Cassette -> Dime 3", r.Log);
     }
 
     [Fact]
@@ -255,6 +263,92 @@ public sealed class AudioOutputFollowerTests
         Assert.False(r.Follower.Disabled);
     }
 
+    [Fact]
+    public void Unchanged_default_id_costs_no_device_enumeration()
+    {
+        var r = new Rig();
+        r.Follower.Poll();
+        int queries = r.Alc.NameQueries;
+        for (int i = 0; i < 50; i++)
+        {
+            r.Now += 1000;
+            r.Follower.Poll();
+        }
+        Assert.Equal(queries, r.Alc.NameQueries);
+        r.Alc.Default = "Dime 3";
+        r.Follower.Poll();
+        Assert.Equal(queries + 1, r.Alc.NameQueries);
+        Assert.Equal("Dime 3", r.Alc.Current);
+    }
+
+    [Fact]
+    public void Token_zero_means_unknown_so_names_are_checked_every_poll()
+    {
+        var r = new Rig();
+        r.Alc.Token = 0;
+        r.Follower.Poll();
+        r.Follower.Poll();
+        r.Follower.Poll();
+        Assert.Equal(3, r.Alc.NameQueries);
+    }
+
+    [Fact]
+    public void Audio_not_up_yet_is_retried_until_the_device_exists()
+    {
+        var r = new Rig();
+        r.Alc.Device = IntPtr.Zero;
+        r.Follower.Poll();
+        r.Follower.Poll();
+        Assert.Empty(r.Log);
+        r.Alc.Device = new IntPtr(0x2000);
+        r.Follower.Poll();
+        Assert.Contains("Audio output: Cassette", r.Log);
+    }
+
+    [Fact]
+    public void Dispose_stops_polling_and_waits_for_a_poll_in_flight()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var entered = new ManualResetEventSlim(false);
+        var slow = new SlowAlc(entered, gate);
+        var follower = new AudioOutputFollower(slow, null, _ => { });
+        var poll = Task.Run(follower.Poll);
+        Assert.True(entered.Wait(2000));
+        var dispose = Task.Run(follower.Dispose);
+        Task.Delay(150).Wait();
+        Assert.False(dispose.IsCompleted); // Dispose waits for the running poll.
+        gate.Set();
+        Assert.True(dispose.Wait(3000));
+        poll.Wait();
+        int calls = slow.Calls;
+        follower.Poll();
+        Assert.Equal(calls, slow.Calls); // Stopped followers never touch OpenAL again.
+    }
+
+    sealed class SlowAlc : IAlcApi
+    {
+        readonly ManualResetEventSlim entered;
+        readonly ManualResetEventSlim gate;
+        public int Calls;
+        public SlowAlc(ManualResetEventSlim entered, ManualResetEventSlim gate)
+        {
+            this.entered = entered;
+            this.gate = gate;
+        }
+        public IntPtr CurrentDevice()
+        {
+            Interlocked.Increment(ref Calls);
+            entered.Set();
+            gate.Wait(5000);
+            return IntPtr.Zero;
+        }
+        public bool SupportsReopen(IntPtr device) => true;
+        public string? DeviceName(IntPtr device) => null;
+        public long DefaultToken() => 0;
+        public string? DefaultName() => null;
+        public bool ReopenDefault(IntPtr device) => true;
+    }
+
     [Theory]
     [InlineData(null, true, true)]
     [InlineData("", true, true)]
@@ -421,6 +515,7 @@ public sealed class AudioOutputFollowerTests
             finally { Marshal.FreeHGlobal(n); }
         }
         public string? DeviceName(IntPtr device) => Marshal.PtrToStringUTF8(str(device, 0x1013));
+        public long DefaultToken() => 0;
         public string? DefaultName() => Marshal.PtrToStringUTF8(str(IntPtr.Zero, 0x1012));
         public bool ReopenDefault(IntPtr device) => reopen!(device, IntPtr.Zero, IntPtr.Zero) != 0;
     }
