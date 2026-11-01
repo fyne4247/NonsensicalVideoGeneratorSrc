@@ -106,3 +106,7 @@ No shared files between the two workers. No sequencing needed. Remote dirs are s
 - Review state: S2 APPROVED by Opus, not yet merged by Sol. This proves native vocoder feasibility, not application integration. Native executable path wiring remains hard-1 scope.
 - Follow-up: NOTES.md incorrectly describes 750 as Ubuntu 24.04; correct to Linux Mint 22.3 (noble base) in reviewed integration. Native vocoder prompts on stdin for missing arguments; application must close stdin to avoid hanging on bad input. Sent both findings to Opus.
 - S1/L1 remains in progress. NEXT ACTION: Await Opus's consolidated review; do not repeat completed S2 tests or inspect workers merely for status.
+
+## Owner-requested status check — 2026-11-01
+- Owner asks to continue and whether hard-1 is still working. One direct atmux status/capture check reports pane alive and shows active Thinking output around Sdcb.FFmpeg RootPath/resolver handling; no completion report received. This is observed session state, not proof of a passing build or runtime.
+- Sent owner continuation instruction to Opus. Do not restart or duplicate the worker. NEXT ACTION: await Opus's consolidated review or an actionable blocker.
