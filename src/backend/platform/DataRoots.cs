@@ -12,7 +12,7 @@ namespace NonsensicalVideoGenerator
     {
         public const string FolderName = "NonsensicalVideoGenerator";
 
-        static readonly string[] SeedDirectories = { "plugins", "templates", "locales", "library", "bin" };
+        static readonly string[] SeedDirectories = { "plugins", "templates", "locales", "library" };
 
         public static string ResourceRoot => AppContext.BaseDirectory;
 
@@ -91,7 +91,7 @@ namespace NonsensicalVideoGenerator
         }
 
         /// <summary>
-        /// Copy stock plugins, templates, locales, library, bin, and baseroot documents
+        /// Copy stock plugins, templates, locales, library, and baseroot documents
         /// that are not already in the data root. Returns the number of files copied.
         /// </summary>
         public static int Seed(string resourceRoot, string dataRoot)

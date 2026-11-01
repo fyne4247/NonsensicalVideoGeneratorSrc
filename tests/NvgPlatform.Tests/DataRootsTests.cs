@@ -71,7 +71,9 @@ public sealed class DataRootsTests
         Put(Path.Combine(resource, "FFmpeg-LICENSE.txt"), "gpl");
         Put(Path.Combine(resource, "NonsensicalVideoGenerator.dll"), "not-stock");
         int first = DataRoots.Seed(resource, data);
-        Assert.Equal(8, first);
+        Assert.Equal(7, first);
+        Assert.False(File.Exists(Path.Combine(data, "bin", "images", "affine.png")));
+        Assert.False(Directory.Exists(Path.Combine(data, "bin")));
         Assert.Equal("original", File.ReadAllText(Path.Combine(data, "plugins", "user", "stock", "speed.lua")));
         Assert.Equal("unicode-name", File.ReadAllText(Path.Combine(data, "plugins", "user", "stock", "名前.lua")));
         Assert.Equal("template", File.ReadAllText(Path.Combine(data, "templates", "my layer", "effect.lua")));
