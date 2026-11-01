@@ -711,3 +711,19 @@ Sol integrated hard-8/10/11 (+hard-9) on the team branch; code commit 7fceb31. T
 - Conflict resolution checked: `NvgPlatform.Tests.csproj` keeps both `ShutdownSignals.cs` and `LibraryPathRules.cs` includes, plus `AudioOutputFollower.cs` and the new shared `..\PosixFactAttribute.cs`. Correct.
 - Classification checked against source. `DataRoots.Apply` returns early on Windows (DataRoots.cs:76), so the DataRoots and AppPaths job tests can't apply there. PlatformTts has only Mac/Linux helpers. The shell-helper notice differs on Windows. The libc test and the 3 ProcessTree tests (/bin/sleep, /usr/bin/python3) are POSIX. 8 `[PosixFact]` skips; `Mac_osascript_script_is_one_argument` stays active with the backslash-escaped expectation. `PosixFactAttribute` sets `Skip` only when `OperatingSystem.IsWindows()`, so Mac/Linux still run all of them. Approve.
 - Windows VM, fresh `git archive` of 7fceb31 in `C:\Users\Quickemu\nvgtest-7fceb31` (nothing deleted): WindowsDX `dotnet build -c Debug` 0 errors / 2 warnings; NvgPlatform 53 passed / 5 skipped / 0 failed; NvgMedia 7 passed / 3 skipped / 0 failed. Skipped names match exactly the 8 above. VM shut down; ollama inactive (prior state).
+
+## Opus review: hard-12 integrated packages, APPROVED
+
+- Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-12`, commit `1d75af4` (no tracked edits; code = 7fceb31). Worker closed.
+- Mac tests at HEAD: NvgPlatform 58/58, NvgMedia 10/10.
+
+| Package | Path | Bytes | sha256 |
+|---|---|---|---|
+| osx-arm64 DMG | `/tmp/nvg-hard12/out-arm64/NonsensicalVideoGenerator-1.8.3.0-osx-arm64.dmg` (Mac) | 177203066 | 0872f6297a2c58738fac4a38cd71f3288ad4349e8c69ba3541a4ef8297687b49 |
+| osx-x64 DMG | `/tmp/nvg-hard12/out-x64/NonsensicalVideoGenerator-1.8.3.0-osx-x64.dmg` (Mac) | 145067321 | 0d8cb1b2e37f674dbd8b248e7d74be4ae80a9b865ffdf4aeda467f64cdc400ff |
+| linux-x64 tarball | `~/nvg-hard12/out-linux/NonsensicalVideoGenerator-1.8.3.0-linux-x64.tar.gz` (750) | 190482785 | ef3f2519c4498ff00eb6fb5dcc23fbc699c609859ac9975f47323e86f7a7b4b2 |
+
+- Worker-reported: 6/6 locales in each; `codesign -v --deep` OK on both apps; the dll contains AudioOutputFollower/ShutdownSignals/LibraryPathRules in all three; no Steam/SharpCompress/ZstdSharp binaries (license texts and a steam icon remain).
+- Opus re-checked the arm64 DMG: sha256 matches. Its `libopenal.1.dylib` (sha256 85a1808a…) is identical to the one in hard-11's live-switch app. `alcReopenDeviceSOFT` is a local symbol, but AudioOutputFollower resolves it through `alcGetProcAddress` (AudioOutputFollower.cs:416), so that is fine.
+- Mac deps were reused from hard-7's prefixes (the rewriter matches by basename); Linux FFmpeg was rebuilt. A failed first Linux attempt left `/tmp/nvg-linux.ZKkidI` (562 MB) on 750; not deleted (owner approval needed). Free space: Mac ~4.6 GiB, 750 ~7.7 GB.
+- Owner by-ear test copy: `/tmp/nvg-owner-final/NonsensicalVideoGenerator.app` (ditto from the arm64 DMG, codesign OK), launcher `/tmp/nvg-owner-final/Run NVG final test.command`, temp data root `/tmp/nvg-owner-final/data`. Owner result: pending.
