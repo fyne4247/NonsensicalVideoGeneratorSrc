@@ -360,3 +360,11 @@ Acceptance and tests:
 - `otool -L`/`ldd` show no Homebrew, `/usr/local` or missing libraries. No Steam/SharpCompress/ZstdSharp files.
 - Report package sizes, each tool's version/licence, the build time, and everything not verified. GUI launch last, one attempt.
 - On 750 use only `~/nvg-p5/`. No sudo/apt/brew, no pushes or uploads. Temp HOME for tests. Quote all paths.
+
+## L4 prototype review and bundled-dependency follow-up — Opus, 2026-11-01
+- Review checkpoint 899158a; hard-4 branch final 6223094 APPROVED as packaging scripts/docs and closed, branch retained. Full package acceptance is not met yet. Reported artifacts: mac DMG 163 MB, Linux tarball 180 MB; signing/library paths checked; temp-data-root install/launch passed, uninstall preserves data, no Steam/SharpCompress/ZstdSharp binaries.
+- Windows VM build of team 4a6909b passed: zero errors/two warnings, no SharpCompress.dll. VM shut down, Ollama left inactive (prior state). This excludes subsequent ToolPaths changes, which need final validation.
+- Concrete gaps: packages lack CLI ffmpeg/ffprobe required for rendering, mac Finder launch lacks Homebrew PATH, mac package lacks magick, packages lack frei0r. Do not present prototypes as self-contained usable releases.
+- Opus reports owner directly chose to bundle everything. Triage checkpoint aaa1a70 starts hard-5 (Grok 4.7): pinned-source x264/FFmpeg 7.1.1 CLI and libraries with frei0r, frei0r plugins, mac ImageMagick, mac tool PATH fallback/test, rebuilt packages, third-party/GPL notices and docs. Owns tools/**, package scripts, platform docs, ToolPaths.cs and media tests.
+- Sol asked Opus to enumerate bundled/external status for ffmpeg/ffprobe, magick, frei0r, vocoder, yt-dlp and deno; validate actual local generation from installed clean-temp-data packages with minimal PATH; preserve source/license provenance and missing-optional-tool behavior.
+- Remaining acceptance: complete bundled tools and package render; normal chooser/drop/clipboard/TTS and audible preview on Mac/Linux; Windows interactive launch/cancel. No main merge or push. NEXT ACTION: await hard-5 and Opus's consolidated package review before integration.
