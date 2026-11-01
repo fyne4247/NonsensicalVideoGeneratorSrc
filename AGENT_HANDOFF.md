@@ -320,3 +320,25 @@ Acceptance and tests (no test project covers these scripts):
 - NEXT ACTION: Await installer review and final correction review; then finish packaging and actual desktop validation before reporting completion. Nothing pushed/published.
 
 - Installer follow-through confirmed by Opus: hard-4 will merge current team changes, rebuild clean staging, verify neither removed DLL ships, and document non-overwrite upgrade behavior. Opus will perform the final Windows build after installer integration. Historical credits/license files remain preserved; cosmetic cleanup is not required for this port.
+
+## Review — L4 installers (Opus, 2026-11-01)
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-4 (L4) | atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-4 | 6223094 | APPROVE as packaging scripts and docs. Closed. Its own commit touches only owned files; the csproj/LibraryPage/handoff diffs on the branch come from merging the team branch (4a6909b). |
+
+Worker-reported evidence:
+- osx-arm64 DMG is 163 MB; linux-x64 tarball is 180 MB.
+- `codesign -v --deep` passes. `otool -L` across 28 Mach-Os shows no Homebrew or `/usr/local` paths. On Linux, RUNPATH is `$ORIGIN`.
+- Both apps launch with a temp data root and print `FFmpeg Sdcb init OK` / `Initialization complete`. On Linux the app stayed alive ≥30 s on `:0`.
+- Linux install into a prefix with spaces works. Uninstall removes only the installer's files and keeps the data dir.
+- No Steam files and no SharpCompress/ZstdSharp DLLs in either package.
+- Bundled: FFmpeg 7.1.1 libs (GPL-3.0-or-later), vocoder, yt-dlp (Unlicense), deno (MIT), ImageMagick AppImage (Linux only).
+
+Windows final check: WindowsDX full `dotnet build` of team 4a6909b in the owner-approved VM gives 0 errors / 2 warnings, and there's no SharpCompress.dll in the output. The VM was shut down afterwards; ollama is still inactive (its prior state).
+
+### Gaps (blocking a "works without extra installs" claim)
+1. **No CLI `ffmpeg`/`ffprobe` in either package.** `build-ffmpeg7.sh` uses `--disable-programs` and has no libx264. Renders and frame extraction call the `ffmpeg` program, so they need a system ffmpeg with libx264. That contradicts MACOS_BUILD_INSTRUCTIONS.md:5 ("does not need ... Homebrew").
+2. **A Finder-launched macOS app gets launchd's PATH** (`/usr/bin:/bin:/usr/sbin:/sbin`). Even users with Homebrew ffmpeg won't have it found. Small correction for Sol: on macOS, ToolPaths' PATH fallback should also search `/opt/homebrew/bin` and `/usr/local/bin`.
+3. **Dropped helpers:** macOS has no `magick`, and neither OS has frei0r. Stock plugins using them fail with the missing-tool message. Per the plan, dropping features needs the owner's decision.
+4. osx-x64 DMG not built. No window was looked at. The macOS `sandbox_extension_issue_file_to_process failed` log line is harmless (startup continued). No notarisation (expected).
+**Decision needed from the owner:** bundle a source-built CLI ffmpeg/ffprobe with x264 (and frei0r/magick), or document ffmpeg/magick/frei0r as runtime prerequisites for the community build.
