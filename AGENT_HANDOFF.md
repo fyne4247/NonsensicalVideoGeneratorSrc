@@ -273,3 +273,31 @@ Acceptance and tests:
 ### Next
 - L4 (installers + docs) can start once Sol merges hard-2 + hard-3 into the team branch. It needs one hard worker, owning new `tools/package/**`, `MACOS_BUILD_INSTRUCTIONS.md`, `LINUX_BUILD_INSTRUCTIONS.md` and `README.md`.
 - Main checkout clean at every check.
+
+## Opus review of Sol integration fix da2d484 (2026-11-01)
+- APPROVE. All 5 `FramePlayer.cs` sites now use `ToolPaths.Ffmpeg/Ffprobe(useSystemOnWindows: true)`: on Windows that returns the bare name on PATH, exactly as before; on DesktopGL it's bundled first, then PATH.
+- DefineConstants (`NonsensicalVideoGenerator.csproj:49`): `<DefineConstants>TRACE</DefineConstants>` resets anything defined earlier in evaluation. Nothing sets constants earlier today, and the SDK adds `DEBUG` later, so the build is correct now. It's still fragile. Suggested correction: merge lines 49–50 into `<DefineConstants>$(DefineConstants);TRACE;DESKTOPGL</DefineConstants>`. Note that a command-line `-p:DefineConstants=...` is a global property and replaces the project value completely, so DESKTOPGL can't be appended to it. Document that rather than claim full append handling. The WindowsDX line 61 (`WINDOWSDX`) behaves as it did before the port.
+
+## Triage — L4 installers and docs (Opus, 2026-11-01)
+**Staffing:** 1 hard worker (Grok 4.7): `flow-1101-0201-hard-4`. hard-1..3 are closed, and their branches and worktrees are kept, so the next free number is used. Only one hard worker runs at a time.
+Why hard: install-name rewriting for dylibs, rpath/loader paths, bundle layout and signing, a user-local installer that must never delete user data. A wrong guess ships a broken or data-losing installer. Scale: new files in one area, no shared files.
+Base: team branch HEAD at assignment time (it includes P and da2d484). If Sol commits the DefineConstants correction later, hard-4 doesn't need it: it doesn't own the csproj.
+
+Owns (all new unless noted): `tools/package/**` (`build-macos-installer.sh`, `build-linux-package.sh`, `linux/install-linux.sh`, `linux/uninstall-linux.sh`, `linux/nonsensicalvideogenerator` launcher, `linux/*.desktop`, `macos/Info.plist.in`, `THIRD_PARTY.md` template), `MACOS_BUILD_INSTRUCTIONS.md`, `LINUX_BUILD_INSTRUCTIONS.md` (rewrite: native first, the existing Proton route kept as a fallback section, its known script defects listed), `README.md` (platform section only).
+Must not touch: `src/**`, `tests/**`, `NonsensicalVideoGenerator.csproj`, `Directory.Build.props`, `content/**`, `tools/ffmpeg7/**`, `tools/vocoder/**`, `tools/build-content-desktopgl.sh` (call them, don't edit them; ask Opus if one needs a change), `publish.*`, `steamcmd*`, `proton.sh`, `start.sh`, `install-dotnet-sdk-in-proton.sh`, `AGENT_HANDOFF.md`, `PLAN_*.md`, the main checkout.
+macOS (`build-macos-installer.sh <rid> <outdir>`, rid `osx-arm64` required, `osx-x64` best effort):
+- `dotnet publish -c Release -r <rid> --self-contained -p:NvgPlatform=DesktopGL`. Content comes from `tools/build-content-desktopgl.sh` on arm64.
+- `.app` layout: `Contents/MacOS` (apphost + managed + resources), `Info.plist` (bundle id `io.github.nvg.NonsensicalVideoGenerator`, version from the assembly), `.icns` made from `icon.ico` (sips/iconutil).
+- App-local FFmpeg 7.1 dylibs from `tools/ffmpeg7/build-ffmpeg7.sh` (not Homebrew), with install names rewritten to `@rpath`/`@loader_path`. `otool -L` on every bundled Mach-O must show no `/opt/homebrew` or `/usr/local` paths.
+- The vocoder comes from `tools/vocoder/build-vocoder.sh`. CLI ffmpeg/ffprobe, magick, yt-dlp and deno: bundle official upstream release binaries only where the licence and architecture are clear (record the URL, version, checksum and licence in `THIRD_PARTY.md`). Otherwise leave the tool out and rely on ToolPaths' PATH fallback plus the visible missing-tool message. Don't copy from Homebrew.
+- No `steam_appid.txt` and no Steam natives in the bundle.
+- Ad-hoc `codesign --force --deep -s -`, then `hdiutil create` a DMG. No notarisation, no upload.
+Linux (`build-linux-package.sh <outdir>`, linux-x64):
+- Self-contained publish plus app-local FFmpeg 7.1 `.so` files in `lib/`. Use the launcher `nonsensicalvideogenerator` (POSIX sh: resolves its own dir, sets `LD_LIBRARY_PATH`/`NVG_FFMPEG_LIB` to the bundled lib dir, forwards `"$@"`, quotes everything). Produce a `.tar.gz`.
+- `install-linux.sh [--prefix DIR]`: default `~/.local/opt/NonsensicalVideoGenerator`, a `~/.local/bin` symlink, a `.desktop` entry plus icon under `~/.local/share`. No sudo. Upgrade replaces only the app dir.
+- `uninstall-linux.sh` removes only what the installer created and **never** the data root (`~/.local/share/NonsensicalVideoGenerator`). It prints where user data stays.
+Acceptance and tests (no test project covers these scripts):
+- `sh -n` / `bash -n` on every script, plus `shellcheck` if it's on PATH (don't install it).
+- Mac: build the osx-arm64 DMG, `hdiutil attach` it read-only, copy the `.app` to a temp dir (not /Applications), run `codesign -v`, run `otool -L` checks, then launch `Contents/MacOS/NonsensicalVideoGenerator` with a temp `NVG_DATA_DIR` and temp `HOME`. Check the log shows `Data root:` under the temp dir and `FFmpeg Sdcb init OK`. GUI window launch last, one attempt.
+- 750 (`~/nvg-p4/` only): extract the tarball into a path with spaces, run `install-linux.sh --prefix "<temp dir with spaces>"` with a temp `HOME`, launch through the installed symlink with `DISPLAY=:0`, temp `NVG_DATA_DIR`, ≥30 s alive. `ldd` must show the bundled FFmpeg libs. Then uninstall, and check the data dir survives and nothing outside the prefix/temp HOME changed.
+- Report sizes, every bundled third-party binary with its licence, and everything not verified.
