@@ -515,6 +515,10 @@ namespace NonsensicalVideoGenerator
         }
         public static void Update(GameTime gameTime)
         {
+#if DESKTOPGL
+            // Runs just before UserInterface's music block, and only after the intro.
+            GlobalContent.EnsureDesktopMusic(gameTime.TotalGameTime.TotalMilliseconds);
+#endif
             if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
             {
                 if(Global.videoPlaying && UserInterface.instance != null && UserInterface.instance.videoPlayer != null && UserInterface.instance.videoPath != "" && UserInterface.instance.videoPlayer.State == MediaState.Stopped)

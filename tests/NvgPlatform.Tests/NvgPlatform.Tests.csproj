@@ -19,6 +19,8 @@
   -->
   <ItemGroup>
     <Compile Include="..\..\src\backend\platform\AppPaths.cs" Link="platform\AppPaths.cs" />
+    <Compile Include="..\..\src\backend\platform\AppRestart.cs" Link="platform\AppRestart.cs" />
+    <Compile Include="..\..\src\backend\platform\AudioDiagnostics.cs" Link="platform\AudioDiagnostics.cs" />
     <Compile Include="..\..\src\backend\platform\DataRoots.cs" Link="platform\DataRoots.cs" />
     <Compile Include="..\..\src\backend\platform\NativeCommand.cs" Link="platform\NativeCommand.cs" />
     <Compile Include="..\..\src\backend\platform\NvgPaths.cs" Link="platform\NvgPaths.cs" />
