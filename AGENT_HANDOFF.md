@@ -595,3 +595,14 @@ Acceptance: unit tests for the subType validation with both separators. A headle
 - Not verified: real Intel hardware; the Windows VM build (Opus runs it together with hard-9/hard-10, since the Program.cs change is inside #if). The osx-x64 DMG still has to be rebuilt from the integrated branch before it can be offered.
 - Main checkout: clean, no worker writes. (The untracked `AGENTS.override.md` is in hard-8's own worktree, not committed.)
 - Worker closed.
+
+## Review — hard-10 (plugin path failures) — Opus, 2026-11-01
+**Approve.** Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-10`, final commit `525c3b12a76adba72c429142cebda095f8492719`. No fix round.
+- Root cause: plugin Query stores `Path.Join` library paths (`video/recall` on Mac/Linux). Three subtype checks in PluginHandler compared them against `root + "\\" + sub` and threw Invalid subType. recall.lua is a post-render effect, so that exception escaped Plugin.Call and VidThread marked the render failed, which left the media player empty. Separately, the empty-library sentinel is `../..` off Windows, which missed the `..\..` check, so dance.lua got `{FILE_1} -> ../..`.
+- Fix: the new `src/data/LibraryPathRules.cs` compares paths separator-agnostically and treats both sentinels as empty. Stock Lua is unchanged. Windows strings still match exactly as before.
+- Also adds a `NVG_AUTO_GENERATE=1` test switch, `#if DESKTOPGL` and off unless set. It ships in DesktopGL builds; it's harmless, but Sol may want it mentioned in MACOS/LINUX_BUILD_INSTRUCTIONS.
+- Evidence (Opus re-checked the log): `/tmp/nvg-hard10-gen/data/console.txt` has 0 Invalid subType and reaches "Applied recall.lua to render. / Saving to library...". `library/video/renders/Render1.mp4` (1.0 MB, worker: 13.27 s h264+aac). NvgPlatform 21/21 and NvgMedia 10/10 on Mac and 750; DesktopGL build 0 errors on both.
+- Not verified: the dance.lua sentinel live (unit-tested only; dance wasn't rolled); a full Linux generation (750 debug build has no Content); the Windows VM build (Opus runs it with hard-9).
+- Remaining robustness note (upstream, not fixed): any non-ScriptRuntimeException from a post-render addon still fails the whole render.
+- Expected merge conflict: `tests/NvgPlatform.Tests/NvgPlatform.Tests.csproj` (one added line each from hard-8 and hard-10; keep both).
+- Main checkout clean. Worker closed.
