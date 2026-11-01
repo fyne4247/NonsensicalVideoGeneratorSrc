@@ -137,6 +137,18 @@ if [ -n "${NVG_FREI0R_PREFIX:-}" ]; then
     CONFIGURE_NOTE="$CONFIGURE_NOTE --enable-frei0r"
 fi
 
+# configure reads --cc, not the CC environment variable. Without this it
+# runs `gcc`, which on an arm64 Mac links arm64 and rejects an x86_64 libx264.
+CC_FLAG="--cc=$CC"
+HOST_CC_FLAG=""
+EXTRA_LDFLAGS=""
+if [ -n "$ARCH_FLAG" ]; then
+    EXTRA_CFLAGS="${EXTRA_CFLAGS:+$EXTRA_CFLAGS }-arch $target_arch"
+    EXTRA_LDFLAGS="-arch $target_arch"
+    HOST_CC_FLAG="--host-cc=/usr/bin/cc"
+    CONFIGURE_NOTE="$CONFIGURE_NOTE $ARCH_FLAG --extra-cflags=-arch $target_arch --extra-ldflags=-arch $target_arch"
+fi
+
 pick_pkg_config() {
     if [ -n "${NVG_PKG_CONFIG:-}" ] && [ -x "$NVG_PKG_CONFIG" ]; then
         printf '%s\n' "$NVG_PKG_CONFIG"
@@ -187,12 +199,15 @@ echo "==> configuring $FFMPEG_TAG ($COMMIT) prefix $OUTPUT_DIR"
         --enable-gpl \
         --enable-version3 \
         --enable-rpath \
+        "$CC_FLAG" \
+        $HOST_CC_FLAG \
         $PROGRAM_FLAGS \
         $X264_FLAGS \
         $FREI0R_FLAGS \
         $ASM_FLAG \
         $ARCH_FLAG \
-        ${EXTRA_CFLAGS:+--extra-cflags="$EXTRA_CFLAGS"}
+        ${EXTRA_CFLAGS:+--extra-cflags="$EXTRA_CFLAGS"} \
+        ${EXTRA_LDFLAGS:+--extra-ldflags="$EXTRA_LDFLAGS"}
 )
 
 echo "==> building with -j$JOBS"
