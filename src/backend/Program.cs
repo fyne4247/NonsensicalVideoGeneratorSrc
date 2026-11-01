@@ -150,7 +150,14 @@ namespace NonsensicalVideoGenerator
             HolidayManager.CheckHolidays();
             Global.productVersion = (Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0");
             using (var game = new UserInterface())
+            {
+#if DESKTOPGL
+                // Before SDL_Init. CoreCLR already owns SIGTERM; cancel that
+                // forced exit and let UnloadContent close OpenAL first.
+                ShutdownSignals.Register(game.Exit);
+#endif
                 game.Run();
+            }
             // On graceful exit, save the game data
             SaveData.Save();
         }
