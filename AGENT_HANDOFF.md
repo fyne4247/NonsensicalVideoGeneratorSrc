@@ -643,3 +643,15 @@ Acceptance: on the Mac, with a temp data root, volumes at 10 and no clicks, swit
 
 ### hard-11 research (accepted)
 No OpenAL Soft version follows the CoreAudio default by itself (1.24+ only emits events). The bundled 1.22.0 already exports `alcReopenDeviceSOFT`. Plan: a background poll (~1 s) of the default output, then `alcReopenDeviceSOFT(device, NULL)` on change. No rebuild or new LGPL artifact; `tools/**` untouched. Linux: check whether PulseAudio/PipeWire already moves an unpinned stream.
+
+## Opus review: hard-11 (audio output following), APPROVED
+
+- Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-11`, final commit `ac886ddccd2bbb925ac2274d119b6803a9281e3c` (includes hard-9 via merge 6822391).
+- Live Mac test (owner said go, 2026-11-01 ~23:25Z, volumes 10, temp HOME/NVG_DATA_DIR): console.txt shows `Audio output moved: Dime 3 -> Cassette` and `Audio output moved: Cassette -> Dime 3`; alsoft.log shows `Reopened device ..., "Cassette"`. Quit via AX menu, no new crash report.
+- The live test found a real bug: OpenAL Soft 1.22 caches the default-device string until the full device list is queried. ac886dd queries ALC_ALL_DEVICES_SPECIFIER first. Reviewed: correct, 3-line change plus test.
+- Tests at ac886dd: NvgPlatform 49/49, NvgMedia 10/10 on Mac and on 750. DesktopGL Release build 0 errors.
+- Linux: `[pulse] allow-moves=true` via Prepare verified on 750 (sink 58 -> 503 -> 510 -> 58).
+- Owner default output restored by name ("Dime 3", the default at start). macOS re-registered the BT device id (119 -> 120); harmless.
+- Process note: hard-11 once stopped a buggy test build with pkill (SIGTERM) rather than AX Quit; no crash report resulted.
+- Known limits: Bluetooth reopen can pause sound ~1 s; the test .app was hard-9's app with only the dll swapped, so the integrated installer build still needs a by-ear check.
+- Main checkout clean after this report. Worker closed.
