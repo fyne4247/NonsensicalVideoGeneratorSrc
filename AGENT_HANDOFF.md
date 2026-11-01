@@ -1,7 +1,7 @@
 # Platform planning handoff — 2026-11-01
 
 ## Objective and acceptance criteria
-Owner asks to get NVG running natively on macOS and/or Linux where practical, with Wine as fallback, and explicitly assigns macOS planning to Opus and Linux planning to Sol. Current deliverable is two evidence-based plans and a consolidated recommendation; implementation is not started.
+Owner asks to get NVG running natively on macOS and/or Linux where practical, with Wine as fallback, and explicitly assigns macOS planning to Opus and Linux planning to Sol. Current deliverable is two evidence-based plans and a consolidated recommendation; implementation is not started. Owner subsequently approves native installers alongside Windows installers and designates `ssh 750` as the Linux test host (booting). Owner does not control the existing Steam listing; recommendation is local/community installers first, without Steam publishing.
 
 Plans must identify Windows dependencies, native feasibility risks, file/task boundaries, dependency order, verification requirements and fallback criteria. No runtime support may be claimed without actual verification.
 
@@ -13,8 +13,8 @@ Plans must identify Windows dependencies, native feasibility risks, file/task bo
 - Target main is checked out at /Users/fish4247/Vibecoding/NonsensicalVideoGeneratorSrc. No merge/push/deployment performed. Planning records stay on the team branch pending review; do not merge implementation that does not exist.
 
 ## Assignments and current state
-- Sol: PLAN_LINUX.md, this handoff. Linux repository audit and plan complete; awaiting Opus's combined plan review.
-- Opus (flow-1101-0201-opus): PLAN_MACOS.md in the shared team worktree/branch. macOS investigation complete; revised evidence and review pending. No separate worker branches or worktrees created. Baseline HEAD for both is the integration baseline above until the plan checkpoint.
+- Sol: PLAN_LINUX.md, this handoff. Linux repository audit and plan complete; combined direction approved by Opus, findings incorporated.
+- Opus (flow-1101-0201-opus): PLAN_MACOS.md in the shared team worktree/branch. macOS investigation and combined review complete. PLAN_MACOS.md finalized and handed to Sol for checkpoint; Opus stopped editing. No separate worker branches or worktrees created. Linux/handoff checkpoint: 71a70e1 (flow: plan). macOS plan and final reconciliations are included in the final planning checkpoint.
 - Sol is the single handoff writer. Opus edits only PLAN_MACOS.md.
 
 ## Findings and recommendation
@@ -31,9 +31,11 @@ Do not treat upstream Ubuntu testing claims or static source inspection as live 
 - Opus has its own platform evidence in PLAN_MACOS.md; no claim that Sol independently reran it.
 
 ## Review and approvals
-- Plan checkpoint is not implementation approval.
-- Opus asked to review combined plan and correct unsupported macOS assumptions. Pending consolidated review; no implementation commits to approve.
-- Real Linux test environment remains to be established. Native compatibility is not yet verified on either OS.
+- Opus final consolidated review APPROVES native-first direction with fallback. This is planning approval, not verified implementation.
+- Findings resolved in plan: make S1/L1 one experimental trial first on Mac then Linux; separate DesktopGL content and intermediate outputs; replace System.Drawing.Bitmap; validate vendored playback; serialize shared large-file edits.
+- Ubuntu 24.04 FFmpeg 6.1 is incompatible with the bundled FFmpeg 7 binding; budget app-local 7.1 libraries built from source, never ABI aliases.
+- Owner clarification incorporated: build local installers; community build disables Steam integration by build flag, original Steam release keeps ownership checks. No claim about rights to branding/assets/public distribution. Steam publishing requires coordination with current listing controller and separate authorization.
+- First read-only SSH check to owner-designated `750` timed out during boot. No remote command executed, no remote mutation. OS/tool/desktop baseline pending. Native compatibility is not verified on either OS.
 
 ## NEXT ACTION
-Have Opus review PLAN_LINUX.md and PLAN_MACOS.md, resolve blocking planning findings, and record the review result here. Commit the final planning records, report the shared native-first trial and wrapper fallback to the owner, and leave implementation for the next authorized work step. Never push.
+When implementation begins, verify `ssh 750` connectivity after boot, inspect OS/architecture/tool/desktop baseline, then execute the shared native S1/L1 experiment with separate outputs and no publication. Record launch, thumbnail, audio preview and stock-effect MP4 evidence on both systems before choosing full native implementation or wrapper fallback. Build installers only after verified runtime and data-root work. Planning is complete, committed on team branch; no main merge because the broader port remains unimplemented. Nothing pushed or deployed.
