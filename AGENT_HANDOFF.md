@@ -655,3 +655,32 @@ No OpenAL Soft version follows the CoreAudio default by itself (1.24+ only emits
 - Process note: hard-11 once stopped a buggy test build with pkill (SIGTERM) rather than AX Quit; no crash report resulted.
 - Known limits: Bluetooth reopen can pause sound ~1 s; the test .app was hard-9's app with only the dll swapped, so the integrated installer build still needs a by-ear check.
 - Main checkout clean after this report. Worker closed.
+
+## Opus review: trial merge of hard-8, hard-10, hard-9, hard-11 (audio/restart/plugin-path round)
+
+Trial branch `flow-test/flow-1101-0201-audio` at `d20a313a525d40602beb406076a2254f96999fcd` (base: team 91b636d). The older `flow-test/flow-1101-0201` already existed, so this round used a new name. Trial worktree removed afterwards; branch kept.
+
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-8 (SIGTERM clean exit) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-8` | `d2d0ba14e6a43cbf3fa89aa82a8341ca193ce984` | approve |
+| hard-10 (plugin paths / empty media player) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-10` | `525c3b12a76adba72c429142cebda095f8492719` | approve |
+| hard-9 (menu music, UI-scale restart) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-9` | `6e415d384efe2aeecade38963a24719521d671b4` | approve (contained in hard-11) |
+| hard-11 (follow system audio output) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-11` | `ac886ddccd2bbb925ac2274d119b6803a9281e3c` | approve |
+
+Merge order used: hard-8, hard-10, hard-11 (which already merges hard-9).
+
+**Conflicts:** one, `tests/NvgPlatform.Tests/NvgPlatform.Tests.csproj` (hard-8 adds `ShutdownSignals.cs`, hard-10 adds `LibraryPathRules.cs` at the same line). Resolution: keep both `<Compile Include>` lines. hard-11 then merged with no conflict. Sol must repeat this on the team branch.
+
+**Tests at d20a313:**
+- Mac (temp HOME/NVG_DATA_DIR, nice -n 10, parallel): NvgPlatform 58/58, NvgMedia 10/10. `dotnet build -c Release -p:NvgPlatform=DesktopGL -p:NvgSkipMgcb=true`: 0 errors / 2 warnings. (A default-target build on the Mac fails in MGCB with the arm64 content builder; known, not a regression.)
+- Linux 750 (`~/nvg-audio-trial`, git-archive copy): NvgPlatform 58/58, NvgMedia 10/10; DesktopGL Release build 0 errors / 2 warnings.
+- Windows VM (`C:\Users\Quickemu\nvgtest-audio`): WindowsDX `dotnet build -c Debug` 0 errors / 2 warnings: **Windows build regression PASS.** VM shut down; ollama left inactive.
+- Windows test-project run (first time these projects were run on Windows): NvgPlatform 52/58, NvgMedia 7/10. All 9 failures are POSIX-only tests (osascript/shell helper strings, /bin/sleep, /usr/bin/python3, libc, Unicode temp path, speech timing). Only one is from this round: hard-8's `ShutdownSignalsTests.Sigterm_reaches_the_registration_and_does_not_kill_the_process` (calls libc `kill`). The feature is DESKTOPGL-only, so no Windows app impact. Follow-up for Sol (small): skip POSIX-only tests on Windows (`OperatingSystem.IsWindows()` guard / `[SkippableFact]`), or document that the test projects are Mac/Linux-only.
+
+**Not yet verified:** the owner by ear on a full integrated installer build (music audible, render shows in the media player, UI-size restart reopens, output follows a headphone switch, Quit exits cleanly). hard-11's live switch used hard-9's app with only its dll swapped. Linux GUI pass and real Intel hardware still open.
+
+**Risks / structure:**
+- AudioOutputFollower polls CoreAudio once a second on a Timer and calls into OpenAL off the game thread; reopen is OpenAL's own documented thread-safe call, and shutdown stops it before OpenAL closes. Bluetooth reopen can pause sound ~1 s.
+- macOS following depends on the bundled OpenAL Soft >= 1.22 (`alcReopenDeviceSOFT`); Linux depends on PulseAudio `allow-moves` via the generated `alsoft.conf` (skipped if the user sets ALSOFT_CONF).
+- AppRestart's Windows path still goes through steam://run (unchanged behaviour); non-Steam Windows installs were not exercised.
+- Main checkout: clean at each report this round.
