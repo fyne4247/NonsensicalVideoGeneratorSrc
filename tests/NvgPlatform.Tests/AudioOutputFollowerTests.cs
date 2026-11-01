@@ -350,8 +350,11 @@ public sealed class AudioOutputFollowerTests
             var log = new List<string>();
             var follower = new AudioOutputFollower(new RealApiForTest(h), null, log.Add);
             follower.Poll();
-            Assert.False(follower.Disabled);
-            Assert.StartsWith("Audio output: ", log[0]);
+            // macOS ships OpenAL Soft 1.22 (has reopen). Linux ships 1.17.1, which does not, so
+            // the follower correctly turns itself off there (Linux uses pulse allow-moves).
+            Assert.Equal(OperatingSystem.IsLinux(), follower.Disabled);
+            if (!follower.Disabled)
+                Assert.StartsWith("Audio output: ", log[0]);
         }
         finally
         {
