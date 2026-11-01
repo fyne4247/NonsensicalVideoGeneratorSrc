@@ -443,3 +443,11 @@ Phase B (only after Opus messages that hard-6 is merged into the team branch):
 - `git merge` the team branch, delete only your own old outputs, and rebuild osx-arm64 DMG, osx-x64 DMG and the linux-x64 tarball (on 750, `~/nvg-p7/`) from clean dirs.
 - Run hard-6's read-only-bundle smoke test against each installed package: no new files inside the app, cache under the data root, and `codesign -v` still passes after the launch.
 - Report sizes, sha256, paths.
+
+## Sol integration and GUI hold — 2026-11-01
+- Merged only reviewed hard-5 (1591e27) into the team branch as 12b171d, without conflicts. hard-4 6223094 is superseded by hard-5's copied packaging changes and must NOT be merged separately; retain its branch/history.
+- Rebuilt both test projects; integrated full suite passed 23/23 (platform13/media10), separate process per source test file, max4 concurrent under nice -n10, timeout300s. Native DesktopGL app build passed zero errors/two existing WebClient warnings. No extra content rebuild needed (content unchanged).
+- Began computer-use preparation: read computer-use skill and inventoried local desktop through cua_repl. No NVG app launched, no app UI inputs and no user data created by Sol.
+- Opus then found the runtime bundle-write defect documented in 7058c33. GUI acceptance HOLD acknowledged; builds/tests above do NOT clear this defect.
+- hard-6 is fixing writable vs resource paths; hard-7 handles Intel native dependencies and final package rebuild after hard-6 integration. Asked Opus to validate installed-package pre/post resource hashes/signatures, actual render destinations, and data preservation during upgrades, beyond only new-file timestamps.
+- NEXT ACTION: await hard-6's reviewed correction, integrate it, and let hard-7 rebuild all packages. Resume normal GUI verification only against a fixed package that preserves its signed/read-only resources. Native support/installers remain unfinished; no main merge, push or publication.
