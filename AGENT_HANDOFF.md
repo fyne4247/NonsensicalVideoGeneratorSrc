@@ -98,3 +98,11 @@ Dependencies: none. Runs in parallel with hard-1.
 
 ### Overlap
 No shared files between the two workers. No sequencing needed. Remote dirs are separate (`~/nvg-trial/` vs `~/nvg-vocoder/`).
+
+## S2 vocoder result — Opus review report, 2026-11-01
+- Owner/worker: easy-1; branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-easy-1`; approved final commit `346a6f9`. Opus reports worker closed, branch/worktree preserved. Worktree path was not included in report; verify via git worktree list before eventual integration/cleanup.
+- Changes: only `tools/vocoder/build-vocoder.sh` and `tools/vocoder/NOTES.md`. Upstream borsboom/vocoder pinned to `3faed27b`, with notice-preserving permissive license per review.
+- Verification reported by Opus: build and run on Mac (clang 21) and 750 (gcc 13.3), using the stock plugin argument shape `-b 1024 mod carrier out`; ffprobe validated 2.02-second pcm_s16le WAV output on both. Sol has not duplicated these tests.
+- Review state: S2 APPROVED by Opus, not yet merged by Sol. This proves native vocoder feasibility, not application integration. Native executable path wiring remains hard-1 scope.
+- Follow-up: NOTES.md incorrectly describes 750 as Ubuntu 24.04; correct to Linux Mint 22.3 (noble base) in reviewed integration. Native vocoder prompts on stdin for missing arguments; application must close stdin to avoid hanging on bad input. Sent both findings to Opus.
+- S1/L1 remains in progress. NEXT ACTION: Await Opus's consolidated review; do not repeat completed S2 tests or inspect workers merely for status.
