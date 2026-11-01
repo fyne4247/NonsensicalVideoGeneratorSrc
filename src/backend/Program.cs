@@ -28,8 +28,7 @@ namespace NonsensicalVideoGenerator
             }
             if(Global.parameters.Contains("-console"))
             {
-                string cwd = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".");
-                string consoleTxt = Path.Combine(cwd, "console.txt");
+                string consoleTxt = Path.Combine(AppPaths.Writable, "console.txt");
                 if(File.Exists(consoleTxt))
                 {
                     ProcessStartInfo startInfo = new()
@@ -66,7 +65,7 @@ namespace NonsensicalVideoGenerator
             if(!Global.parameters.Contains("-nofrei0r"))
             {
                 // Set FREI0R_PATH environment variable.
-                string frei0r = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "frei0r-1");
+                string frei0r = Path.Combine(AppPaths.Resources, "bin", "frei0r-1");
 #if DESKTOPGL
                 Environment.SetEnvironmentVariable("FREI0R_PATH", frei0r, EnvironmentVariableTarget.Process);
                 ConsoleOutput.WriteLine("FREI0R_PATH: " + Environment.GetEnvironmentVariable("FREI0R_PATH"), Color.Transparent);

@@ -7,7 +7,6 @@ using System.Net;
 using System.Diagnostics;
 using System.Linq;
 using System.Globalization;
-using System.Reflection;
 
 namespace NonsensicalVideoGenerator
 {
@@ -435,7 +434,7 @@ namespace NonsensicalVideoGenerator
             if(!path.Contains("outros") || !path.EndsWith("defaultoutro.mp4"))
                 return path;
             // Find the default outro in the locales folder.
-            string basePath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".");
+            string basePath = AppPaths.Resources;
             string defaultOutroPath = Path.Combine(basePath, "locales", "defaultoutros", L.GetLocale().name + ".mp4");
             if (File.Exists(defaultOutroPath))
             {

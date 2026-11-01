@@ -139,7 +139,7 @@ namespace NonsensicalVideoGenerator
                 {
                     FileName = command,
                     Arguments = args,
-                    WorkingDirectory = workingDirectory ?? (Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "."),
+                    WorkingDirectory = workingDirectory ?? AppPaths.Writable,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -235,7 +235,7 @@ namespace NonsensicalVideoGenerator
                     subType = "";
                 }
                 // If libraryRoot is not empty, download to library instead of job folder
-                string downloadPath = subType != "" ? Path.Join(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", rootType, subType) : rootType;
+                string downloadPath = subType != "" ? Path.Join(AppPaths.Writable, "library", rootType, subType) : rootType;
                 string combinedPath = Path.Combine(downloadPath, Path.GetFileName(url));
                 if(type == CommandType.YtDlp)
                 {
@@ -757,7 +757,7 @@ namespace NonsensicalVideoGenerator
                 throw new Exception("Invalid rootType");
             }
             // Check library directory
-            string combinedPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", rootType, subType, ReplacePlaceholders(path));
+            string combinedPath = Path.Combine(AppPaths.Writable, "library", rootType, subType, ReplacePlaceholders(path));
             // Make sure folder exists
             if (!Directory.Exists(Path.GetDirectoryName(combinedPath)))
             {
@@ -2085,7 +2085,7 @@ namespace NonsensicalVideoGenerator
                     }
                     else
                     {
-                        iconPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "temp", "publish_" + Path.GetFileNameWithoutExtension(plugin.path) + ".gif");
+                        iconPath = Path.Combine(AppPaths.Writable, "temp", "publish_" + Path.GetFileNameWithoutExtension(plugin.path) + ".gif");
                         Generator.GenerateGifPreview(movie, Path.Combine("templates", "bootmovie.png"), iconPath);
                     }
                 }
@@ -2340,7 +2340,7 @@ namespace NonsensicalVideoGenerator
                 contentPath = contentPath.Substring(1);
             }
             contentPath = contentPath.Replace("/", "\\");
-            // Get full path
+            // Steam publishes from the install tree on Windows. This path stays on the assembly directory.
             contentPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", contentPath);
             ConsoleOutput.WriteLine($"Content path: {contentPath}");
             cont = SteamUGC.SetItemContent(handle, contentPath);
