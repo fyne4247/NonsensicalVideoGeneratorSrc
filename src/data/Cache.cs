@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 
 namespace NonsensicalVideoGenerator
 {
@@ -17,7 +16,7 @@ namespace NonsensicalVideoGenerator
             if(Cache.ContainsKey(videoUniqueKey))
                 return Cache[videoUniqueKey];
             // If the video is not in the cache, copy it to the cache directory and return the path
-            string cache = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "cache");
+            string cache = Path.Combine(AppPaths.Writable, "cache");
             if(!Directory.Exists(cache))
                 Directory.CreateDirectory(cache);
             string videoFileExtension = Path.GetExtension(video);
@@ -36,7 +35,7 @@ namespace NonsensicalVideoGenerator
         public static void ClearCache()
         {
             // Loop through all videos inside the cache path directory and delete them
-            string cache = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "cache");
+            string cache = Path.Combine(AppPaths.Writable, "cache");
             if(Directory.Exists(cache))
             {
                 foreach(string file in Directory.GetFiles(cache))

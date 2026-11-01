@@ -8,7 +8,6 @@ using System.Diagnostics;
 using System;
 using System.ComponentModel;
 using System.Linq;
-using System.Reflection;
 using System.Globalization;
 using MonoGame.Extended.VideoPlayback;
 
@@ -491,7 +490,7 @@ namespace NonsensicalVideoGenerator
                             Texture2D texture = new Texture2D(graphicsDevice, texWidth, texHeight);
 #endif
                             // Generate video thumbnail using ffmpeg
-                            string tempBmp = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "temp", "thumb.bmp");
+                            string tempBmp = Path.Combine(AppPaths.Writable, "temp", "thumb.bmp");
                             Process bmpProcess = Generator.GenerateThumbnail(LibraryData.GetLocalizedDefaultOutro(libraryFile.Path), tempBmp, currentRootType);
                             // Defer until process is done
                             while (!bmpProcess.HasExited)
