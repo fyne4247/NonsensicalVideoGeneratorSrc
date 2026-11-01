@@ -9,7 +9,6 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
-using System.Windows;
 using System.Globalization;
 using MonoGame.Extended.VideoPlayback;
 using SharpCompress;
@@ -82,7 +81,7 @@ namespace NonsensicalVideoGenerator
                                 // Open directory
                                 ProcessStartInfo startInfo = new()
                                 {
-                                    FileName = Path.GetFullPath(@"library\" + path.Value),
+                                    FileName = Path.GetFullPath(NvgPaths.Native(@"library\" + path.Value)),
                                     UseShellExecute = true,
                                 };
                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
@@ -482,7 +481,11 @@ namespace NonsensicalVideoGenerator
                             int texScale = int.Parse(SaveData.saveValues["VideoPlaybackScale"], CultureInfo.InvariantCulture);
                             int texWidth = 29 * texScale;
                             int texHeight = 23 * texScale;
+#if DESKTOPGL
+                            Texture2D texture;
+#else
                             Texture2D texture = new Texture2D(graphicsDevice, texWidth, texHeight);
+#endif
                             // Generate video thumbnail using ffmpeg
                             string tempBmp = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "temp", "thumb.bmp");
                             Process bmpProcess = Generator.GenerateThumbnail(LibraryData.GetLocalizedDefaultOutro(libraryFile.Path), tempBmp, currentRootType);
@@ -501,6 +504,16 @@ namespace NonsensicalVideoGenerator
                             if (loadVideosThread != null && loadVideosThread.CancellationPending)
                                 return;
                             // Load bitmap
+#if DESKTOPGL
+                            Color[] colorData = BmpThumbnail.Read(tempBmp, texWidth, texHeight);
+                            Texture2D uploaded = null!;
+                            GraphicsThread.Invoke(() =>
+                            {
+                                uploaded = new Texture2D(graphicsDevice, texWidth, texHeight);
+                                uploaded.SetData(colorData);
+                            });
+                            texture = uploaded;
+#else
                             System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(tempBmp);
                             // Convert bitmap to color data
                             Color[] colorData = new Color[texWidth * texHeight];
@@ -516,6 +529,8 @@ namespace NonsensicalVideoGenerator
                                 }
                             }
                             texture.SetData(colorData);
+                            bitmap.Dispose();
+#endif
                             // Check to make sure we're still on the same page
                             if (currentPage != page)
                                 return;
@@ -523,7 +538,6 @@ namespace NonsensicalVideoGenerator
                             if (loadVideosThread != null && loadVideosThread.CancellationPending)
                                 return;
                             // Delete temp file
-                            bitmap.Dispose();
                             File.Delete(tempBmp);
                             // Check to make sure we're still on the same page
                             if (currentPage != page)
@@ -926,7 +940,7 @@ namespace NonsensicalVideoGenerator
                                                     {
                                                         Global.generator.progressText = L.T(0, "Library:Downloading");
                                                         downloading = true;
-                                                        string clipboard = Clipboard.GetText();
+                                                        string clipboard = System.Windows.Clipboard.GetText();
                                                         // Remove invalid characters
                                                         clipboard = clipboard.Replace("\r", "");
                                                         clipboard = clipboard.Replace("\t", "");
@@ -1145,6 +1159,9 @@ namespace NonsensicalVideoGenerator
                                             if (right)
                                             {
                                                 // Open directory and select file
+#if DESKTOPGL
+                                                PlatformShell.Reveal(LibraryData.GetLocalizedDefaultOutro(file.Path));
+#else
                                                 ProcessStartInfo startInfo = new()
                                                 {
                                                     FileName = "explorer.exe",
@@ -1152,6 +1169,7 @@ namespace NonsensicalVideoGenerator
                                                 };
                                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                                 Process.Start(startInfo);
+#endif
                                             }
                                             GlobalContent.PlaySound("Select");
                                         }
@@ -1376,7 +1394,7 @@ namespace NonsensicalVideoGenerator
                                                 // Open directory and select file
                                                 ProcessStartInfo startInfo = new()
                                                 {
-                                                    FileName = Path.GetFullPath(@"library\" + path.Value),
+                                                    FileName = Path.GetFullPath(NvgPaths.Native(@"library\" + path.Value)),
                                                     UseShellExecute = true,
                                                 };
                                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
@@ -1434,6 +1452,46 @@ namespace NonsensicalVideoGenerator
                                                 {
                                                     GlobalContent.PlaySound("AddSource");
                                                 }
+                                            }
+                                        }
+#else
+                                        if(!currentLibraryType.Special)
+                                        {
+                                            string filter = LibraryData.libraryNames[currentLibraryType] + "|";
+                                            foreach (string extension in LibraryData.libraryFileTypes[currentLibraryType])
+                                            {
+                                                filter += "*" + extension + ";";
+                                            }
+                                            filter = filter[..^1];
+                                            string localizationToken = "Library:ImportVideoPicker";
+                                            if (currentLibraryType == DefaultLibraryTypes.Audio)
+                                                localizationToken = "Library:ImportAudioPicker";
+                                            if (currentLibraryType == DefaultLibraryTypes.Image)
+                                                localizationToken = "Library:ImportImagePicker";
+                                            string[] picked = PlatformFileDialog.OpenFiles(
+                                                L.T(0, localizationToken, LibraryData.libraryNames[currentLibraryType]),
+                                                filter,
+                                                true,
+                                                null);
+                                            if (picked.Length > 0)
+                                            {
+                                                bool success = true;
+                                                foreach (string file in picked)
+                                                {
+                                                    LibraryFile libraryFile = new(Path.GetFileNameWithoutExtension(file), file, currentLibraryType);
+                                                    LibraryFile? newFile = LibraryData.Load(libraryFile);
+                                                    if(newFile == null)
+                                                    {
+                                                        success = false;
+                                                        continue;
+                                                    }
+                                                    libraryFileCache[currentLibraryType].Add(newFile);
+                                                }
+                                                demandChange = true;
+                                                if(!success)
+                                                    GlobalContent.PlaySound("Error");
+                                                else
+                                                    GlobalContent.PlaySound("AddSource");
                                             }
                                         }
 #endif

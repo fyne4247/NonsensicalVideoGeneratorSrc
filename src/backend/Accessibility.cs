@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+#if WINDOWSDX
 using System.Speech.Synthesis;
+#endif
 
 namespace NonsensicalVideoGenerator
 {
@@ -38,7 +40,11 @@ namespace NonsensicalVideoGenerator
         private static KeyboardState newKeyboardState;
         private static KeyboardState oldKeyboardState2;
         private static KeyboardState newKeyboardState2;
+#if WINDOWSDX
         public static SpeechSynthesizer synth = new SpeechSynthesizer();
+#else
+        public static PlatformTts synth = new PlatformTts();
+#endif
         public static bool PreUpdate(GameTime gameTime)
         {
             if(!allowAccessibility)
@@ -83,7 +89,11 @@ namespace NonsensicalVideoGenerator
                 // Use text to speech to say "text to speech enabled" or "text to speech disabled"
                 if(enableTts)
                 {
+#if WINDOWSDX
                     synth = new SpeechSynthesizer();
+#else
+                    synth = new PlatformTts();
+#endif
                     synth.SetOutputToDefaultAudioDevice();
                     synth.SpeakAsync(L.T(0, "Accessibility:TextToSpeechEnabled"));
                 }

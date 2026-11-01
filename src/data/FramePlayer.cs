@@ -33,6 +33,11 @@ namespace NonsensicalVideoGenerator
         public static double audioLength = 0;
         public static double currentAudioTime = 0;
         public static bool canPlayBgMusic = true;
+        static string ExtFrames => NvgPaths.Native(@".\temp\extracted\frames");
+        static string ExtAudio => NvgPaths.Native(@".\temp\extracted\audio.wav");
+        static string ExtAudioBmp => NvgPaths.Native(@".\temp\extracted\audio.bmp");
+        static string ExtRoot => NvgPaths.Native(@".\temp\extracted");
+        static string ExtFramePattern => NvgPaths.Native(@".\temp\extracted\frames\%d.bmp");
         private static void ExtractFramesAndAudio()
         {
             try
@@ -42,16 +47,16 @@ namespace NonsensicalVideoGenerator
                 try
                 {
                     // Delete all files in the directory
-                    foreach (string file2 in Directory.GetFiles(".\\temp\\extracted\\frames"))
+                    foreach (string file2 in Directory.GetFiles(ExtFrames))
                     {
                         if(worker.CancellationPending || !processing)
                             return;
                         File.Delete(file2);
                     }
                     // Delete audio file if it exists
-                    if (File.Exists(".\\temp\\extracted\\audio.wav"))
+                    if (File.Exists(ExtAudio))
                     {
-                        File.Delete(".\\temp\\extracted\\audio.wav");
+                        File.Delete(ExtAudio);
                     }
                 }
                 catch
@@ -67,7 +72,7 @@ namespace NonsensicalVideoGenerator
                     FileName = "ffmpeg",
                     // 100x78 letterboxed
                     // fastest method
-                    Arguments = "-i \""+currentPath+"\" -vf scale=" + w + ":" + h + ":force_original_aspect_ratio=decrease,pad=" + w + ":" + h + ":(ow-iw)/2:(oh-ih)/2 -r " + fps + " -y .\\temp\\extracted\\frames\\%d.bmp",
+                    Arguments = "-i \""+currentPath+"\" -vf scale=" + w + ":" + h + ":force_original_aspect_ratio=decrease,pad=" + w + ":" + h + ":(ow-iw)/2:(oh-ih)/2 -r " + fps + " -y " + ExtFramePattern,
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true
@@ -94,7 +99,7 @@ namespace NonsensicalVideoGenerator
                 startInfo = new()
                 {
                     FileName = "ffmpeg",
-                    Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y .\\temp\\extracted\\audio.wav",
+                    Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true
@@ -118,13 +123,13 @@ namespace NonsensicalVideoGenerator
                     return;
                 process.WaitForExit();
                 // Write blank audio if it doesn't exist
-                if(!File.Exists(".\\temp\\extracted\\audio.wav"))
+                if(!File.Exists(ExtAudio))
                 {
                     ConsoleOutput.WriteLine("Failed to extract audio, using blank audio.", Color.Red);
                     startInfo = new()
                     {
                         FileName = "ffmpeg",
-                        Arguments = "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t 1 -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y .\\temp\\extracted\\audio.wav",
+                        Arguments = "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t 1 -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                         UseShellExecute = false,
                         RedirectStandardError = true,
                         CreateNoWindow = true
@@ -153,20 +158,20 @@ namespace NonsensicalVideoGenerator
                 frames.Clear();
                 if(worker.CancellationPending || !processing)
                     return;
-                int curcount = Directory.GetFiles(".\\temp\\extracted\\frames").Length;
+                int curcount = Directory.GetFiles(ExtFrames).Length;
                 count = curcount;
                 for (int i = 1; i <= curcount; i++)
                 {
                     if(worker.CancellationPending || !processing)
                         return;
                     Global.generator.progressText = L.T(0, "Video:StatusLoadFrame", i.ToString(CultureInfo.InvariantCulture), curcount.ToString(CultureInfo.InvariantCulture));
-                    FileStream frameFile = File.OpenRead($".\\temp\\extracted\\frames\\{i}.bmp");
+                    FileStream frameFile = File.OpenRead(Path.Combine(ExtFrames, i + ".bmp"));
                     if(UserInterface.instance != null)
                         frames.Add(Texture2D.FromStream(UserInterface.instance.GraphicsDevice, frameFile));
                     frameFile.Close();
                 }
                 // Load audio
-                FileStream audioFile = File.OpenRead(".\\temp\\extracted\\audio.wav");
+                FileStream audioFile = File.OpenRead(ExtAudio);
                 SoundEffect snd = SoundEffect.FromStream(audioFile);
                 audio = snd.CreateInstance();
                 //ScreenManager.PushNavigation("Video");
@@ -192,7 +197,7 @@ namespace NonsensicalVideoGenerator
             while(processing && !progressWorker.CancellationPending && dircount < count)
             {
                 // Check directory size
-                dircount = Directory.GetFiles(".\\temp\\extracted\\frames").Length;
+                dircount = Directory.GetFiles(ExtFrames).Length;
                 if(dircount > 0)
                 {
                     Global.generator.progressText = L.T(0, "Video:StatusExtractFrames", dircount.ToString(CultureInfo.InvariantCulture), count.ToString(CultureInfo.InvariantCulture));
@@ -311,7 +316,7 @@ namespace NonsensicalVideoGenerator
                 ProcessStartInfo startInfo = new()
                 {
                     FileName = "ffmpeg",
-                    Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y .\\temp\\extracted\\audio.wav",
+                    Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true
@@ -334,7 +339,7 @@ namespace NonsensicalVideoGenerator
                 if(audioConvertWorker.CancellationPending || !processing)
                     return;
                 process.WaitForExit();
-                if(!File.Exists(".\\temp\\extracted\\audio.wav"))
+                if(!File.Exists(ExtAudio))
                 {
                     throw new Exception("Failed to convert audio.");
                 }
@@ -346,21 +351,21 @@ namespace NonsensicalVideoGenerator
                     audio = null;
                     //ScreenManager.GetScreen<VideoScreen>("Video")?.Hide();
                 }
-                FileStream audioFile = File.OpenRead(".\\temp\\extracted\\audio.wav");
+                FileStream audioFile = File.OpenRead(ExtAudio);
                 SoundEffect snd = SoundEffect.FromStream(audioFile);
                 audio = snd.CreateInstance();
                 audioFile.Close();
                 currentAudioTime = 0;
                 audioLength = snd.Duration.TotalMilliseconds;
                 canPlayBgMusic = false;
-                Process waveProcess = Generator.GenerateThumbnail(currentPath, ".\\temp\\extracted\\audio.bmp", LibraryRootType.Audio, 100, 78);
+                Process waveProcess = Generator.GenerateThumbnail(currentPath, ExtAudioBmp, LibraryRootType.Audio, 100, 78);
                 // Defer until the process is finished
                 while(!waveProcess.HasExited)
                 {
                     System.Threading.Thread.Sleep(100);
                 }
                 audioFrame = null;
-                FileStream audioFrameFile = File.OpenRead(".\\temp\\extracted\\audio.bmp");
+                FileStream audioFrameFile = File.OpenRead(ExtAudioBmp);
                 if(UserInterface.instance != null)
                     audioFrame = Texture2D.FromStream(UserInterface.instance.GraphicsDevice, audioFrameFile);
                 audioFrameFile.Close();
@@ -449,9 +454,9 @@ namespace NonsensicalVideoGenerator
                     {
                         // Run ffmpeg to extract frames and audio to .\temp\extracted\frames\* and .\temp\extracted\audio.wav
                         // Create the directory if it doesn't exist
-                        if (!Directory.Exists(".\\temp\\extracted\\frames"))
+                        if (!Directory.Exists(ExtFrames))
                         {
-                            Directory.CreateDirectory(".\\temp\\extracted\\frames");
+                            Directory.CreateDirectory(ExtFrames);
                         }
                         currentAudioTime = 0;
                         audioLength = 0;
@@ -479,9 +484,9 @@ namespace NonsensicalVideoGenerator
                             if(file.Type == null)
                                 throw new Exception("Invalid file type???");
                             // Create the directory if it doesn't exist
-                            if (!Directory.Exists(".\\temp\\extracted"))
+                            if (!Directory.Exists(ExtRoot))
                             {
-                                Directory.CreateDirectory(".\\temp\\extracted");
+                                Directory.CreateDirectory(ExtRoot);
                             }
                             currentAudioTime = 0;
                             audioLength = 0;

@@ -4,7 +4,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Media;
 using System.IO;
+#if WINDOWSDX
 using System.Windows.Forms;
+#endif
 using System.Globalization;
 using MonoGame.Extended.VideoPlayback;
 using System.Reflection;
@@ -89,6 +91,7 @@ namespace NonsensicalVideoGenerator
             }
             GlobalGraphics.SetAspectRatio(aspectRatio);
             _graphics.ApplyChanges();
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
@@ -98,30 +101,36 @@ namespace NonsensicalVideoGenerator
                 else
                     CenterToScreen();
             }
+#endif
             if(!fullscreen)
                 GlobalGraphics.SetAspectRatio(SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio());
         }
         public void CenterToScreen()
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null && Screen.PrimaryScreen != null)
             {
                 // Place window in center of screen.
                 windowForm.Location = new System.Drawing.Point(Screen.PrimaryScreen.WorkingArea.Width / 2 - windowForm.Width / 2, Screen.PrimaryScreen.WorkingArea.Height / 2 - windowForm.Height / 2);
             }
+#endif
         }
         public void SetAlwaysOnTop(bool alwaysOnTop)
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
                 windowForm.TopMost = alwaysOnTop;
             }
+#endif
         }
         public void SetNativeCursor(bool useNativeCursor)
         {
             IsMouseVisible = useNativeCursor;
         }
+#if WINDOWSDX
         // Drag and drop support.
         private void DragEnter(object? sender, DragEventArgs e)
         {
@@ -142,6 +151,7 @@ namespace NonsensicalVideoGenerator
         {
             Global.dragDrop = false;
         }
+#endif
         protected override void Initialize()
         {
             if (bool.Parse(SaveData.saveValues["EnableDiscordRPC"]))
@@ -162,7 +172,13 @@ namespace NonsensicalVideoGenerator
             }
             ConsoleOutput.WriteLine("Form supports drag and drop.", Color.Transparent);
 #else
-            ConsoleOutput.WriteLine("Form does not support drag and drop.", Color.Transparent);
+            Window.FileDrop += (sender, args) =>
+            {
+                Global.dragDropFiles = args.Files != null ? args.Files.ToList() : new List<string>();
+                Global.dragDrop = false;
+                ConsoleOutput.WriteLine("File drop: " + string.Join(", ", Global.dragDropFiles), Color.Transparent);
+            };
+            ConsoleOutput.WriteLine("DesktopGL file drop registered.", Color.Transparent);
 #endif
             // Set window title.
             Window.Title = Global.productName + " v" + Global.productVersion;
@@ -302,6 +318,9 @@ namespace NonsensicalVideoGenerator
         }
         protected override void Update(GameTime gameTime)
         {
+#if DESKTOPGL
+            GraphicsThread.Pump();
+#endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()
             /*
@@ -427,6 +446,9 @@ namespace NonsensicalVideoGenerator
             }
             // Update screens.
             ScreenManager.Update(gameTime);
+#if DESKTOPGL
+            TrialGate.Tick(gameTime, GraphicsDevice, this);
+#endif
             base.Update(gameTime);
         }
         protected override void Draw(GameTime gameTime)

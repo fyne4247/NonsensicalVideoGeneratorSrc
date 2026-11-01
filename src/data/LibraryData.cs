@@ -254,7 +254,7 @@ namespace NonsensicalVideoGenerator
                 {
                     if(type.Special)
                         continue; // Skip special types for now.
-                    string path = Path.Combine(libraryRootPath, libraryPaths[type]);
+                    string path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[type]));
                     if (!Directory.Exists(path))
                         Directory.CreateDirectory(path);
                     LoadRecursive(path, type);
@@ -283,7 +283,7 @@ namespace NonsensicalVideoGenerator
                 ConsoleOutput.WriteLine("Cannot import library file: type is null.", Color.Red);
                 return null;
             }
-            string newpath = Path.Combine(libraryRootPath, libraryPaths[file.Type]);
+            string newpath = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[file.Type]));
             if (!Directory.Exists(newpath))
                 Directory.CreateDirectory(newpath);
             string newfile = Path.Combine(newpath, file.Nickname + Path.GetExtension(file.Path));
@@ -330,7 +330,7 @@ namespace NonsensicalVideoGenerator
         }
         public static void SequentialName()
         {
-            string pa = Path.Combine(libraryRootPath, libraryPaths[DefaultLibraryTypes.Render]);
+            string pa = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[DefaultLibraryTypes.Render]));
             // does the directory exist?
             if (!Directory.Exists(pa))
                 Directory.CreateDirectory(pa);
@@ -524,7 +524,7 @@ namespace NonsensicalVideoGenerator
                 ConsoleOutput.WriteLine("Cannot organize library file: path is null.", Color.Red);
                 return source;
             }
-            string newpath = Path.Combine(libraryRootPath, libraryPaths[newType]);
+            string newpath = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[newType]));
             string finalpath = Path.Combine(newpath, Path.GetFileName(source.Path));
             try
             {
@@ -581,7 +581,7 @@ namespace NonsensicalVideoGenerator
                 // Download the clip.
                 // Remove parameters, domain, navigation, etc. from URL for filename and extension.
                 string filename = Path.GetFileName(downloadUrl).Replace(" ", "_").Split('?')[0];
-                string path = Path.Combine(libraryRootPath, libraryPaths[downloadType], filename);
+                string path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[downloadType], filename));
                 try
                 {
                     string? direxist = Path.GetDirectoryName(path);
@@ -601,7 +601,7 @@ namespace NonsensicalVideoGenerator
                     }
                     else
                     {
-                        path = Path.Combine(libraryRootPath, libraryPaths[downloadType], "%(title)s.%(ext)s");
+                        path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[downloadType], "%(title)s.%(ext)s"));
                         string ytdlp = Global.useSystemYtDlp ? "yt-dlp" : @".\bin\yt-dlp.exe";
                         bool sound = downloadType.RootType == LibraryRootType.Audio;
                         // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:

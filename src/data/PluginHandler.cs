@@ -12,7 +12,9 @@ using Steamworks;
 using System.ComponentModel;
 using System.Net;
 using System.Globalization;
+#if WINDOWSDX
 using System.Windows.Forms;
+#endif
 
 namespace NonsensicalVideoGenerator
 {
@@ -759,6 +761,7 @@ namespace NonsensicalVideoGenerator
         // The arguments match some default windows file dialog options
         public string OpenFilePicker(string title, string filter, bool multiselect = false)
         {
+#if WINDOWSDX
             // Show file dialog and return selected file path
             OpenFileDialog openFileDialog = new()
             {
@@ -779,6 +782,17 @@ namespace NonsensicalVideoGenerator
                 }
             }
             return "";
+#else
+            string[] picked = PlatformFileDialog.OpenFiles(title, filter, multiselect, jobDirectory);
+            if (picked.Length > 0 && !string.IsNullOrEmpty(picked[0]))
+            {
+                placeholderUniqueIndicator++;
+                string placeholderKey = "{File_" + placeholderUniqueIndicator + "}";
+                placeholders.Add(placeholderKey, picked[0]);
+                return placeholderKey;
+            }
+            return "";
+#endif
         }
         // SetStatusText for lua
         public void SetStatusText(string text)
@@ -859,14 +873,14 @@ namespace NonsensicalVideoGenerator
         public PluginReturnValue Call(string video, bool runLua = false, int mouseX = 0, int mouseY = 0, string button = "")
         {
             // Create .\temp\job_%time%\
-            string jobPath = Path.Join(@".\temp\", "job_" + DateTime.UtcNow.ToString("HHmmssfff", CultureInfo.InvariantCulture));
+            string jobPath = Path.Combine(NvgPaths.Native(@".\temp"), "job_" + DateTime.UtcNow.ToString("HHmmssfff", CultureInfo.InvariantCulture));
             // Delete job path if it already exists
             if (Directory.Exists(jobPath))
             {
                 Directory.Delete(jobPath, true);
             }
             Directory.CreateDirectory(jobPath);
-            jobDirectory = Path.GetFullPath(jobPath) + @"\";
+            jobDirectory = Path.GetFullPath(jobPath) + Path.DirectorySeparatorChar;
             if (!runLua)
             {
                 // Copy video to job path as result.mp4
@@ -956,7 +970,7 @@ namespace NonsensicalVideoGenerator
                             {
                                 if (runLua)
                                 {
-                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + @"\");
+                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + Path.DirectorySeparatorChar);
                                 }
                                 for (int i = 0; i < PluginHandler.commands.Count; i++)
                                 {
@@ -967,7 +981,7 @@ namespace NonsensicalVideoGenerator
                                 DynValue result2 = luaScript.Call(luaScript.Globals["StopGeneration"], videoOptions, pluginSettings, functions);
                                 if (result2.Type == DataType.Boolean && result2.Boolean)
                                 {
-                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + @"\");
+                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + Path.DirectorySeparatorChar);
                                 }
                                 else
                                 {
@@ -1283,8 +1297,8 @@ namespace NonsensicalVideoGenerator
     {
         public static List<LibraryCombinedType> queriedLibraryTypes = new();
         public static List<Plugin> plugins = new();
-        private static string pluginPath = @".\plugins";
-        public static string pluginSettingsPath = @".\PluginSettings.json";
+        private static string pluginPath = NvgPaths.Native(@".\plugins");
+        public static string pluginSettingsPath = NvgPaths.Native(@".\PluginSettings.json");
         public static List<Command> commands = new();
         public static PublishedFileId_t[]? subscribedItems;
         public static bool publishing = false;
@@ -1612,6 +1626,14 @@ namespace NonsensicalVideoGenerator
         public static Callback<UserStatsReceived_t>? m_UserStatsReceived;
         public static void LoadWorkshop(bool silent = true)
         {
+#if DESKTOPGL
+            if (!SteamManager.initialized)
+            {
+                ConsoleOutput.WriteLine("[Steamworks.NET] Steam integration off; loading local addons.", Color.Transparent);
+                LoadPluginsThreaded(silent);
+                return;
+            }
+#endif
             updateSilently = silent;
             if(SteamUserStats.RequestCurrentStats())
             {
@@ -1909,6 +1931,7 @@ namespace NonsensicalVideoGenerator
                     // Ask user to pick a video file or use bootmovie.mp4 otherwise.
                     string bootMoviePath = Path.Combine("plugins", "user", "stock", "defaultlogo.mp4");
                     // Ask user to pick a video file.
+#if WINDOWSDX
                     OpenFileDialog openFileDialog = new()
                     {
                         Filter = L.T(0, "Addons:FilterBootMovies") + "|*.mp4",
@@ -1922,6 +1945,11 @@ namespace NonsensicalVideoGenerator
                             bootMoviePath = openFileDialog.FileName;
                         }
                     }
+#else
+                    string[] pickedMovie = PlatformFileDialog.OpenFiles(L.T(0, "Addons:BootMoviePicker"), "*.mp4", false, null);
+                    if (pickedMovie.Length > 0 && File.Exists(pickedMovie[0]))
+                        bootMoviePath = pickedMovie[0];
+#endif
                     if (File.Exists(bootMoviePath))
                     {
                         // Copy boot movie and rename it to %filename%.mp4 (only 6 seconds long)
@@ -1952,6 +1980,15 @@ namespace NonsensicalVideoGenerator
         public static string workshopIcon = "";
         public static string? PickWorkshopIcon()
         {
+#if !WINDOWSDX
+            string[] picked = PlatformFileDialog.OpenFiles(L.T(0, "Addons:WorkshopIconPicker"), "*.jpg;*.png;*.gif", false, Path.GetFullPath("templates"));
+            if (picked.Length > 0)
+                return picked[0];
+            GlobalContent.PlaySound("Error");
+            ConsoleOutput.WriteLine("No icon selected.", Color.Red);
+            Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+            return null;
+#else
             // Select jpg, png, or gif icon with file dialog
             OpenFileDialog fileDialog = new OpenFileDialog();
             fileDialog.Filter = L.T(0, "Addons:WorkshopIcon") + " (*.jpg, *.png, *.gif)|*.jpg;*.png;*.gif";
@@ -1968,6 +2005,7 @@ namespace NonsensicalVideoGenerator
             ConsoleOutput.WriteLine("No icon selected.", Color.Red);
             Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
             return null;
+#endif
         }
         public static void PublishPlugin(Plugin plugin, WorkshopTag tagflags, bool skipIconParsing = false, bool forceIconForBootMovies = false)
         {

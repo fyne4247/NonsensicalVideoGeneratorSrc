@@ -45,7 +45,7 @@ namespace NonsensicalVideoGenerator
     }
     public class Generator
     {
-        public static string temporaryDirectory = @".\temp";
+        public static string temporaryDirectory = NvgPaths.Native(@".\temp");
         public Random globalRandom = new Random();
         public BackgroundWorker? vidThreadWorker { get; set; }
         public float progress { get; set; } = 0;
@@ -66,6 +66,10 @@ namespace NonsensicalVideoGenerator
         public Plugin? pluginEffectTest = null;
         public void KillChildProcesses()
         {
+#if DESKTOPGL
+            ProcessTree.KillChildrenOf(Process.GetCurrentProcess().Id);
+            return;
+#else
             // Find all child processes of the current process and kill them.
             // These are ffmpeg and such, but not the main process.
             // Powershell is used to do this.
@@ -93,6 +97,7 @@ namespace NonsensicalVideoGenerator
             process.Start();
             process.WaitForExit();
             process.Close();
+#endif
         }
         // Kill worker
         public void KillThread(object? sender, DoWorkEventArgs e)
