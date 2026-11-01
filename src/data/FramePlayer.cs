@@ -69,7 +69,7 @@ namespace NonsensicalVideoGenerator
                 int h = 78 * scale;
                 ProcessStartInfo startInfo = new()
                 {
-                    FileName = "ffmpeg",
+                    FileName = ToolPaths.Ffmpeg(useSystemOnWindows: true),
                     // 100x78 letterboxed
                     // fastest method
                     Arguments = "-i \""+currentPath+"\" -vf scale=" + w + ":" + h + ":force_original_aspect_ratio=decrease,pad=" + w + ":" + h + ":(ow-iw)/2:(oh-ih)/2 -r " + fps + " -y " + ExtFramePattern,
@@ -98,7 +98,7 @@ namespace NonsensicalVideoGenerator
                 // Extract audio
                 startInfo = new()
                 {
-                    FileName = "ffmpeg",
+                    FileName = ToolPaths.Ffmpeg(useSystemOnWindows: true),
                     Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                     UseShellExecute = false,
                     RedirectStandardError = true,
@@ -128,7 +128,7 @@ namespace NonsensicalVideoGenerator
                     ConsoleOutput.WriteLine("Failed to extract audio, using blank audio.", Color.Red);
                     startInfo = new()
                     {
-                        FileName = "ffmpeg",
+                        FileName = ToolPaths.Ffmpeg(useSystemOnWindows: true),
                         Arguments = "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t 1 -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                         UseShellExecute = false,
                         RedirectStandardError = true,
@@ -218,7 +218,7 @@ namespace NonsensicalVideoGenerator
                     return;
                 ProcessStartInfo startInfo = new()
                 {
-                    FileName = "ffprobe",
+                    FileName = ToolPaths.Ffprobe(useSystemOnWindows: true),
                     Arguments = "-v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of default=nokey=1:noprint_wrappers=1 \"" + currentPath + "\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -315,7 +315,7 @@ namespace NonsensicalVideoGenerator
                     return;
                 ProcessStartInfo startInfo = new()
                 {
-                    FileName = "ffmpeg",
+                    FileName = ToolPaths.Ffmpeg(useSystemOnWindows: true),
                     Arguments = "-i \"" + currentPath + "\" -vn -acodec pcm_s16le -ar 44100 -ac 2 -f wav -y " + ExtAudio + "",
                     UseShellExecute = false,
                     RedirectStandardError = true,
