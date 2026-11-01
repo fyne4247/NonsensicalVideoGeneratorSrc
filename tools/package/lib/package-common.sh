@@ -6,6 +6,45 @@ nvg_die() {
     exit 1
 }
 
+# $1 directory of locale json files, $2 label, $3 hint appended to the error.
+# A missing directory, no *.json, or a zero-byte json fails the package build.
+# public/locales comes from the public submodule; a git bundle does not carry it.
+nvg_require_locale_jsons() {
+    dir=$1
+    label=$2
+    hint=$3
+    if [ ! -d "$dir" ]; then
+        nvg_die "$label is missing. $hint"
+    fi
+    found=0
+    empty=0
+    for locale_file in "$dir"/*.json; do
+        if [ ! -f "$locale_file" ]; then
+            continue
+        fi
+        found=$((found + 1))
+        if [ ! -s "$locale_file" ]; then
+            printf 'error: locale file is empty: %s\n' "$locale_file" >&2
+            empty=$((empty + 1))
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        nvg_die "no *.json files in $label. $hint"
+    fi
+    if [ "$empty" -ne 0 ]; then
+        nvg_die "$empty empty locale file(s) in $label"
+    fi
+    printf '==> %s locale json files in %s\n' "$found" "$label"
+}
+
+nvg_require_public_locales() {
+    nvg_require_locale_jsons "$ROOT/public/locales" "public/locales" "public is a submodule (git submodule update --init public). A git bundle does not include it."
+}
+
+nvg_require_packaged_locales() {
+    nvg_require_locale_jsons "$1" "$1" "public/locales was not copied into the package."
+}
+
 nvg_version() {
     sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' "$ROOT/NonsensicalVideoGenerator.csproj" | head -n 1
 }

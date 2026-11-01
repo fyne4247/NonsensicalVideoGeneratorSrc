@@ -69,6 +69,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+nvg_require_public_locales
+
 printf '==> DesktopGL content\n'
 env -u DOTNET /bin/sh "$ROOT/tools/build-content-desktopgl.sh"
 XNB_COUNT=$(find "$ROOT/content/bin/DesktopGL/Content" -name '*.xnb' | wc -l | tr -d ' ')
@@ -102,6 +104,7 @@ nvg_strip_publish_dir "$APP/Contents/MacOS"
 chmod 755 "$APP/Contents/MacOS/NonsensicalVideoGenerator"
 nvg_assert_no_steam "$APP"
 nvg_assert_no_removed_deps "$APP"
+nvg_require_packaged_locales "$APP/Contents/MacOS/locales"
 
 CC_BIN=/usr/bin/cc
 CXX_BIN=/usr/bin/c++

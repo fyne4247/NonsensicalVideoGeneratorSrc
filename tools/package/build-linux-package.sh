@@ -42,6 +42,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+nvg_require_public_locales
+
 printf '==> DesktopGL content\n'
 env -u DOTNET /bin/sh "$ROOT/tools/build-content-desktopgl.sh"
 XNB_COUNT=$(find "$ROOT/content/bin/DesktopGL/Content" -name '*.xnb' | wc -l | tr -d ' ')
@@ -71,6 +73,7 @@ chmod 755 "$PKG/NonsensicalVideoGenerator"
 nvg_strip_publish_dir "$PKG"
 nvg_assert_no_steam "$PKG"
 nvg_assert_no_removed_deps "$PKG"
+nvg_require_packaged_locales "$PKG/locales"
 
 DEPS=${NVG_DEPS_DIR:-$WORK/deps}
 nvg_build_media_deps "$DEPS" "$WORK/media-src" /usr/bin/cc /usr/bin/c++
