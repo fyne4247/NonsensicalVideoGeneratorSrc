@@ -48,6 +48,38 @@ if [ "$ACTUAL" != "$VOCODER_COMMIT" ]; then
     exit 1
 fi
 
+echo "==> patching prompt_user to exit on EOF"
+python3 - "$SRC_DIR/main.c" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = """static void prompt_user(const char *prompt, char *buffer, size_t length)
+{
+  printf("%s? ", prompt);
+  fgets(buffer, length, stdin);
+}"""
+new = """static void prompt_user(const char *prompt, char *buffer, size_t length)
+{
+  printf("%s? ", prompt);
+  /* NVG: a closed stdin must exit. Upstream ignores the fgets result, so
+     EOF is an empty line and ask_user loops forever. */
+  if (fgets(buffer, length, stdin) == NULL)
+    {
+      fprintf(stderr, "vocoder: end of input\\n");
+      exit(1);
+    }
+}"""
+if old not in text:
+    if "vocoder: end of input" in text:
+        print("prompt_user EOF patch already applied")
+    else:
+        sys.stderr.write("error: prompt_user in main.c did not match the pinned source\\n")
+        sys.exit(1)
+else:
+    path.write_text(text.replace(old, new, 1))
+    print("applied prompt_user EOF patch")
+PY
+
 echo "==> building with CC=$CC"
 make -C "$SRC_DIR" clean >/dev/null
 make -C "$SRC_DIR" CC="$CC"

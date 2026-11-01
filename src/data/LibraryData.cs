@@ -602,7 +602,8 @@ namespace NonsensicalVideoGenerator
                     else
                     {
                         path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[downloadType], "%(title)s.%(ext)s"));
-                        string ytdlp = Global.useSystemYtDlp ? "yt-dlp" : @".\bin\yt-dlp.exe";
+                        string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
+                        string deno = ToolPaths.Deno(Global.useSystemYtDlp);
                         bool sound = downloadType.RootType == LibraryRootType.Audio;
                         // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
                         /*
@@ -611,8 +612,8 @@ namespace NonsensicalVideoGenerator
                                 To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
                                 If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
                         */
-                        // Specifying where deno.exe is because it's inside of bin instead of the NVG's root directory
-                        ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:.\\bin\\deno.exe -o \"" + path + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + downloadUrl);
+                        // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
+                        ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " -o \"" + path + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + downloadUrl);
                         startInfo.UseShellExecute = false;
                         startInfo.RedirectStandardOutput = true;
                         startInfo.RedirectStandardError = true;
@@ -629,7 +630,7 @@ namespace NonsensicalVideoGenerator
                                 ConsoleOutput.WriteLine(e.Data, Color.Red);
                         };
                         ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                        process.Start();
+                        ProcessTree.StartTracked(process);
                         process.BeginOutputReadLine();
                         process.BeginErrorReadLine();
                         process.WaitForExit();

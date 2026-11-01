@@ -7,8 +7,11 @@ using System.Runtime.InteropServices;
 namespace NonsensicalVideoGenerator
 {
     /// <summary>
-    /// Maps Sdcb.FFmpeg / Extended.VideoPlayback import names (avcodec-61)
-    /// onto FFmpeg 7 shared libraries. Does not alias system SONAMEs.
+    /// Loads FFmpeg 7 shared libraries for Sdcb.FFmpeg (avcodec-61 and the
+    /// matching majors). The real SONAME is opened by absolute path.
+    /// .NET on Linux appends another ".so" when a name already contains
+    /// ".so.", so a request for libavcodec.so.61.so is mapped back to
+    /// libavcodec.so.61. No alias file is staged.
     /// </summary>
     public static class FfmpegNative
     {
@@ -27,75 +30,66 @@ namespace NonsensicalVideoGenerator
         public static bool AvcodecLoaded { get; private set; }
         public static string AvcodecPath { get; private set; } = "";
 
+        public static string LibraryFileName(string stem, int major)
+        {
+            return LibraryFileName(stem, major, HostOs());
+        }
+
+        public static string LibraryFileName(string stem, int major, string os)
+        {
+            if (os == "windows")
+                return stem + "-" + major + ".dll";
+            if (os == "macos")
+                return "lib" + stem + "." + major + ".dylib";
+            return "lib" + stem + ".so." + major;
+        }
+
+        /// <summary>
+        /// Maps an import name or a Linux probe name onto the real library file.
+        /// <c>libavcodec.so.61.so</c> maps to <c>libavcodec.so.61</c>.
+        /// </summary>
+        public static string? CanonicalLibraryName(string requested)
+        {
+            if (!TryParse(requested, out string stem, out int major, out string fileName))
+                return null;
+            return fileName;
+        }
+
         public static void Register()
         {
             string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-            // Sdcb.FFmpeg.Raw.ffmpeg's static constructor already calls
-            // SetDllImportResolver and maps avcodec-61 to libavcodec.61.dylib
-            // (macOS) or libavcodec.so.61 (Linux). A second resolver throws.
-            // Stage those filenames next to the app so its resolver can see the
-            // FFmpeg 7 libraries, which are not on the default loader path.
-            Stage(baseDir);
+            // Sdcb.FFmpeg.Raw.ffmpeg's static constructor calls SetDllImportResolver
+            // and then NativeLibrary.TryLoad("libavcodec.so.61") (Linux) or the
+            // macOS dylib name. A second resolver on that assembly throws.
+            // Preload the real absolute SONAME first. glibc returns the existing
+            // object when Sdcb later dlopens the SONAME, including the extra
+            // ".so" variation, once the library is already mapped.
+            Preload();
             RegisterAssembly(Path.Combine(baseDir, "MonoGame.Extended.VideoPlayback.dll"));
             AvcodecLoaded = TryLoadImport("avcodec-61", out string loaded);
             AvcodecPath = loaded;
             Console.WriteLine(AvcodecLoaded
-                ? "FFmpeg resolver smoke: avcodec-61 OK -> " + loaded
-                : "FFmpeg resolver smoke: avcodec-61 FAIL");
+                ? "FFmpeg resolver: avcodec-61 OK -> " + loaded
+                : "FFmpeg resolver: avcodec-61 FAIL");
             ProbeSdcb(baseDir);
         }
 
-        static void Stage(string baseDir)
+        static void Preload()
         {
             foreach (var pair in Map)
             {
-                string? source = null;
+                string fileName = LibraryFileName(pair.Value.Stem, pair.Value.Major);
                 foreach (string dir in LibDirs())
                 {
-                    string candidate = LibraryFile(dir, pair.Value.Stem, pair.Value.Major);
-                    if (File.Exists(candidate))
+                    string file = Path.Combine(dir, fileName);
+                    if (!File.Exists(file))
+                        continue;
+                    if (NativeLibrary.TryLoad(file, out _))
                     {
-                        source = candidate;
+                        Console.WriteLine("FFmpeg resolver: preloaded " + file);
                         break;
                     }
-                }
-                var names = new List<string>();
-                if (OperatingSystem.IsMacOS())
-                    names.Add("lib" + pair.Value.Stem + "." + pair.Value.Major + ".dylib");
-                else
-                {
-                    // Sdcb asks for libavcodec.so.61. .NET's Linux probe then looks for
-                    // libavcodec.so.61.so (it appends .so again). Stage both.
-                    names.Add("lib" + pair.Value.Stem + ".so." + pair.Value.Major);
-                    names.Add("lib" + pair.Value.Stem + ".so." + pair.Value.Major + ".so");
-                }
-                if (source == null)
-                {
-                    Console.WriteLine("FFmpeg resolver: missing " + names[0]);
-                    continue;
-                }
-                foreach (string fileName in names)
-                {
-                    string dest = Path.Combine(baseDir, fileName);
-                    try
-                    {
-                        if (File.Exists(dest))
-                        {
-                            string? link = new FileInfo(dest).LinkTarget;
-                            if (link == null)
-                                continue;
-                            string full = Path.IsPathRooted(link) ? link : Path.GetFullPath(Path.Combine(baseDir, link));
-                            if (full == Path.GetFullPath(source))
-                                continue;
-                            File.Delete(dest);
-                        }
-                        File.CreateSymbolicLink(dest, source);
-                        Console.WriteLine("FFmpeg resolver: staged " + fileName + " -> " + source);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine("FFmpeg resolver: stage failed " + fileName + " " + ex.Message);
-                    }
+                    Console.WriteLine("FFmpeg resolver: preload failed " + file);
                 }
             }
         }
@@ -126,17 +120,27 @@ namespace NonsensicalVideoGenerator
                 return;
             }
             Assembly assembly = Assembly.LoadFrom(dllPath);
-            NativeLibrary.SetDllImportResolver(assembly, Resolve);
-            Console.WriteLine("FFmpeg resolver: registered " + assembly.GetName().Name);
+            try
+            {
+                NativeLibrary.SetDllImportResolver(assembly, Resolve);
+                Console.WriteLine("FFmpeg resolver: registered " + assembly.GetName().Name);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.WriteLine("FFmpeg resolver: already registered " + assembly.GetName().Name + " " + ex.Message);
+            }
         }
 
         static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
         {
-            if (!Map.TryGetValue(libraryName, out var info))
+            if (!TryParse(libraryName, out string stem, out int major, out string fileName))
                 return IntPtr.Zero;
+            // Import names follow the host. A Linux ".so.N.so" probe stays on the real SONAME.
+            if (libraryName.IndexOf(".so.", StringComparison.Ordinal) < 0)
+                fileName = LibraryFileName(stem, major);
             foreach (string dir in LibDirs())
             {
-                string file = LibraryFile(dir, info.Stem, info.Major);
+                string file = Path.Combine(dir, fileName);
                 if (!File.Exists(file))
                     continue;
                 if (NativeLibrary.TryLoad(file, out IntPtr handle))
@@ -145,18 +149,19 @@ namespace NonsensicalVideoGenerator
                     return handle;
                 }
             }
-            Console.WriteLine("FFmpeg resolver: FAILED " + libraryName);
+            Console.WriteLine("FFmpeg resolver: FAILED " + libraryName + " (" + fileName + ")");
             return IntPtr.Zero;
         }
 
         static bool TryLoadImport(string libraryName, out string loadedPath)
         {
             loadedPath = "";
-            if (!Map.TryGetValue(libraryName, out var info))
+            if (!TryParse(libraryName, out string stem, out int major, out _))
                 return false;
+            string fileName = LibraryFileName(stem, major);
             foreach (string dir in LibDirs())
             {
-                string file = LibraryFile(dir, info.Stem, info.Major);
+                string file = Path.Combine(dir, fileName);
                 if (File.Exists(file) && NativeLibrary.TryLoad(file, out _))
                 {
                     loadedPath = file;
@@ -166,11 +171,49 @@ namespace NonsensicalVideoGenerator
             return false;
         }
 
-        static string LibraryFile(string dir, string stem, int major)
+        static bool TryParse(string requested, out string stem, out int major, out string fileName)
         {
+            foreach (var pair in Map)
+            {
+                stem = pair.Value.Stem;
+                major = pair.Value.Major;
+                string linux = LibraryFileName(stem, major, "linux");
+                string macos = LibraryFileName(stem, major, "macos");
+                string windows = LibraryFileName(stem, major, "windows");
+                if (requested == pair.Key)
+                {
+                    fileName = LibraryFileName(stem, major);
+                    return true;
+                }
+                if (requested == linux || requested == linux + ".so")
+                {
+                    fileName = linux;
+                    return true;
+                }
+                if (requested == macos)
+                {
+                    fileName = macos;
+                    return true;
+                }
+                if (requested == windows)
+                {
+                    fileName = windows;
+                    return true;
+                }
+            }
+            stem = "";
+            major = 0;
+            fileName = "";
+            return false;
+        }
+
+        static string HostOs()
+        {
+            if (OperatingSystem.IsWindows())
+                return "windows";
             if (OperatingSystem.IsMacOS())
-                return Path.Combine(dir, "lib" + stem + "." + major + ".dylib");
-            return Path.Combine(dir, "lib" + stem + ".so." + major);
+                return "macos";
+            return "linux";
         }
 
         static IEnumerable<string> LibDirs()
@@ -178,17 +221,18 @@ namespace NonsensicalVideoGenerator
             string? env = Environment.GetEnvironmentVariable("NVG_FFMPEG_LIB");
             if (!string.IsNullOrWhiteSpace(env))
                 yield return env;
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrEmpty(home))
-                yield return Path.Combine(home, "nvg-trial", "ffmpeg7", "lib");
+            string root = ToolPaths.ResourceRoot;
+            if (!string.IsNullOrEmpty(root))
+            {
+                yield return Path.Combine(root, "ffmpeg7", "lib");
+                yield return Path.Combine(root, "lib");
+                yield return root;
+            }
             if (OperatingSystem.IsMacOS())
             {
                 yield return "/opt/homebrew/opt/ffmpeg@7/lib";
                 yield return "/usr/local/opt/ffmpeg@7/lib";
             }
-            string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-            yield return Path.Combine(baseDir, "ffmpeg7", "lib");
-            yield return baseDir;
         }
     }
 }

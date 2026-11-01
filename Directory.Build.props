@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    BaseIntermediateOutputPath and MSBuildProjectExtensionsPath are read while
+    Microsoft.Common.props loads. Setting them in the csproj is too late
+    (MSB3539 / MSB3540), and DesktopGL then shares obj/ with the WindowsDX build.
+    NvgPlatform has to be a global property: -p:NvgPlatform=DesktopGL.
+  -->
+  <PropertyGroup Condition="'$(NvgPlatform)' == 'DesktopGL'">
+    <BaseIntermediateOutputPath>obj-desktopgl/</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>obj-desktopgl/</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+</Project>

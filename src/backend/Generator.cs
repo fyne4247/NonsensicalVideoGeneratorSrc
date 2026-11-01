@@ -66,38 +66,8 @@ namespace NonsensicalVideoGenerator
         public Plugin? pluginEffectTest = null;
         public void KillChildProcesses()
         {
-#if DESKTOPGL
-            ProcessTree.KillChildrenOf(Process.GetCurrentProcess().Id);
-            return;
-#else
-            // Find all child processes of the current process and kill them.
-            // These are ffmpeg and such, but not the main process.
-            // Powershell is used to do this.
-            ProcessStartInfo startInfo = new ProcessStartInfo();
-            startInfo.FileName = "powershell.exe";
-            startInfo.Arguments = "Get-CimInstance Win32_Process | Where-Object {$_.ParentProcessId -eq " + Process.GetCurrentProcess().Id + "} | ForEach-Object {Stop-Process -Id $_.ProcessId}";
-            startInfo.UseShellExecute = false;
-            startInfo.CreateNoWindow = true;
-            startInfo.RedirectStandardOutput = true;
-            startInfo.RedirectStandardError = true;
-            Process process = new Process();
-            // Add console print
-            process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-            {
-                if (e.Data != null)
-                    ConsoleOutput.WriteLine(e.Data);
-            };
-            process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-            {
-                if (e.Data != null)
-                    ConsoleOutput.WriteLine(e.Data, Color.Red);
-            };
-            process.StartInfo = startInfo;
-            ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-            process.Start();
-            process.WaitForExit();
-            process.Close();
-#endif
+            // Only processes this job started. Other ffmpeg processes stay up.
+            ProcessTree.KillOwned();
         }
         // Kill worker
         public void KillThread(object? sender, DoWorkEventArgs e)
@@ -360,7 +330,7 @@ namespace NonsensicalVideoGenerator
                                         // Make sure this is a valid file with ffprobe.
                                         ProcessStartInfo ffprobe = new ProcessStartInfo()
                                         {
-                                            FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe",
+                                            FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe),
                                             Arguments = "-v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 \"" + file + "\"",
                                             UseShellExecute = false,
                                             RedirectStandardOutput = true,
@@ -373,7 +343,7 @@ namespace NonsensicalVideoGenerator
                                         {
                                             isVideo += e.Data;
                                         };
-                                        ffprobeProcess.Start();
+                                        ProcessTree.StartTracked(ffprobeProcess);
                                         ffprobeProcess.BeginOutputReadLine();
                                         ffprobeProcess.WaitForExit();
                                         if (isVideo != "" && isVideo != "N/A")
@@ -734,7 +704,7 @@ namespace NonsensicalVideoGenerator
                                     // Make sure this is a valid file with ffprobe.
                                     ProcessStartInfo ffprobe = new ProcessStartInfo()
                                     {
-                                        FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe",
+                                        FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe),
                                         Arguments = "-v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 \"" + file + "\"",
                                         UseShellExecute = false,
                                         RedirectStandardOutput = true,
@@ -747,7 +717,7 @@ namespace NonsensicalVideoGenerator
                                     {
                                         isVideo += e.Data;
                                     };
-                                    ffprobeProcess.Start();
+                                    ProcessTree.StartTracked(ffprobeProcess);
                                     ffprobeProcess.BeginOutputReadLine();
                                     ffprobeProcess.WaitForExit();
                                     if (isVideo != "" && isVideo != "N/A")
@@ -1134,7 +1104,7 @@ namespace NonsensicalVideoGenerator
                                 // Make sure this is a valid file with ffprobe.
                                 ProcessStartInfo ffprobe = new ProcessStartInfo()
                                 {
-                                    FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe",
+                                    FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe),
                                     Arguments = "-v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 \"" + file + "\"",
                                     UseShellExecute = false,
                                     RedirectStandardOutput = true,
@@ -1147,7 +1117,7 @@ namespace NonsensicalVideoGenerator
                                 {
                                     isVideo += e.Data;
                                 };
-                                ffprobeProcess.Start();
+                                ProcessTree.StartTracked(ffprobeProcess);
                                 ffprobeProcess.BeginOutputReadLine();
                                 ffprobeProcess.WaitForExit();
                                 if (isVideo != "" && isVideo != "N/A")
@@ -1338,7 +1308,7 @@ namespace NonsensicalVideoGenerator
                 Process process = new Process();
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe";
+                startInfo.FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe);
                 startInfo.Arguments = "-i \"" + file
                         + "\" -show_entries format=duration"
                         + " -v quiet"
@@ -1361,7 +1331,7 @@ namespace NonsensicalVideoGenerator
                     if (e.Data != null)
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
                 process.WaitForExit();
@@ -1389,7 +1359,7 @@ namespace NonsensicalVideoGenerator
                 Process process = new Process();
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+                startInfo.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                 startInfo.Arguments = "-i \"" + video
                         + "\" -ss " + startTime
                         + " -to " + endTime
@@ -1409,7 +1379,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
 
@@ -1436,7 +1406,7 @@ namespace NonsensicalVideoGenerator
                 Process process = new Process();
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe";
+                startInfo.FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe);
                 startInfo.Arguments = "-i \"" + video
                         + "\" -show_streams"
                         + " -v quiet"
@@ -1460,7 +1430,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
                 process.WaitForExit();
@@ -1495,7 +1465,7 @@ namespace NonsensicalVideoGenerator
                 Process process = new Process();
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+                startInfo.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                 startInfo.Arguments = "-i \"" + video + "\" " + appendNoAudio
                         + (SaveData.saveValues["ConstrainAspectRatio"] == "true" ? " -vf scale=" + SaveData.saveValues["VideoWidth"] + "x" + SaveData.saveValues["VideoHeight"] + ",setsar=1:1,fps=fps=" + SaveData.saveValues["VideoFPS"] : " -vf \"scale=(iw*sar)*min(" + SaveData.saveValues["VideoWidth"] + "/(iw*sar)\\," + SaveData.saveValues["VideoHeight"] + "/ih):ih*min(" + SaveData.saveValues["VideoWidth"] + "/(iw*sar)\\," + SaveData.saveValues["VideoHeight"] + "/ih),pad=" + SaveData.saveValues["VideoWidth"] + ":" + SaveData.saveValues["VideoHeight"] + ":(" + SaveData.saveValues["VideoWidth"] + "-iw*min(" + SaveData.saveValues["VideoWidth"] + "/iw\\," + SaveData.saveValues["VideoHeight"] + "/ih))/2:(" + SaveData.saveValues["VideoHeight"] + "-ih*min(" + SaveData.saveValues["VideoWidth"] + "/iw\\," + SaveData.saveValues["VideoHeight"] + "/ih))/2,setsar=1:1,fps=fps=" + SaveData.saveValues["VideoFPS"] + "\"")
                         + (Global.generator.audioSync == true ? " -af aresample=async=1000" : "")
@@ -1513,7 +1483,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
             }
@@ -1597,7 +1567,7 @@ namespace NonsensicalVideoGenerator
                         Process process2 = new Process();
                         ProcessStartInfo startInfo2 = new ProcessStartInfo();
                         startInfo2.WindowStyle = ProcessWindowStyle.Hidden;
-                        startInfo2.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+                        startInfo2.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                         startInfo2.Arguments = "-i \"" + Path.Combine(temporaryDirectory, thisClip.name) + "\" " + appendNoAudio
                                 + (Global.generator.audioSync == true ? " -af \"aresample=async=1000\"" : "")
                                 + (SaveData.saveValues["ConstrainAspectRatio"] == "true" ? " -vf scale=" + SaveData.saveValues["VideoWidth"] + "x" + SaveData.saveValues["VideoHeight"] + ",setsar=1:1,fps=fps=" + SaveData.saveValues["VideoFPS"] : " -vf \"scale=(iw*sar)*min(" + SaveData.saveValues["VideoWidth"] + "/(iw*sar)\\," + SaveData.saveValues["VideoHeight"] + "/ih):ih*min(" + SaveData.saveValues["VideoWidth"] + "/(iw*sar)\\," + SaveData.saveValues["VideoHeight"] + "/ih),pad=" + SaveData.saveValues["VideoWidth"] + ":" + SaveData.saveValues["VideoHeight"] + ":(" + SaveData.saveValues["VideoWidth"] + "-iw*min(" + SaveData.saveValues["VideoWidth"] + "/iw\\," + SaveData.saveValues["VideoHeight"] + "/ih))/2:(" + SaveData.saveValues["VideoHeight"] + "-ih*min(" + SaveData.saveValues["VideoWidth"] + "/iw\\," + SaveData.saveValues["VideoHeight"] + "/ih))/2,setsar=1:1,fps=fps=" + SaveData.saveValues["VideoFPS"] + "\"")
@@ -1614,7 +1584,7 @@ namespace NonsensicalVideoGenerator
                             if (e.Data != null)
                                 ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                         };
-                        process2.Start();
+                        ProcessTree.StartTracked(process2);
                         process2.BeginErrorReadLine();
                         process2.WaitForExit();
                         i2++;
@@ -1629,7 +1599,7 @@ namespace NonsensicalVideoGenerator
                     // Make sure this is a valid file with ffprobe.
                     ProcessStartInfo ffprobe = new ProcessStartInfo()
                     {
-                        FileName = Global.useSystemFFprobe ? "ffprobe" : @".\bin\ffprobe.exe",
+                        FileName = ToolPaths.Ffprobe(Global.useSystemFFprobe),
                         Arguments = "-v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 \"" + Path.Combine(temporaryDirectory, "concat" + i + ".mp4") + "\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
@@ -1643,7 +1613,7 @@ namespace NonsensicalVideoGenerator
                         isVideo += e.Data;
                     };
                     ConsoleOutput.WriteLine($"> {ffprobe.FileName} {ffprobe.Arguments}", Color.Transparent);
-                    ffprobeProcess.Start();
+                    ProcessTree.StartTracked(ffprobeProcess);
                     ffprobeProcess.BeginOutputReadLine();
                     ffprobeProcess.WaitForExit();
                     if(isVideo != "" && isVideo != "N/A")
@@ -1709,7 +1679,7 @@ namespace NonsensicalVideoGenerator
             Process process = new Process();
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            startInfo.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+            startInfo.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
             startInfo.Arguments = concat + " \"" + Path.Combine(temporaryDirectory, "iteration" + iteration + ".mp4") + "\"";
             startInfo.UseShellExecute = false;
             startInfo.RedirectStandardError = true;
@@ -1722,7 +1692,7 @@ namespace NonsensicalVideoGenerator
                     ConsoleOutput.WriteLine(e.Data, Color.Transparent);
             };
             ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-            process.Start();
+            ProcessTree.StartTracked(process);
             process.BeginErrorReadLine();
             process.WaitForExit();
             // Keep all files
@@ -1771,7 +1741,7 @@ namespace NonsensicalVideoGenerator
                 Process process2 = new Process();
                 ProcessStartInfo startInfo2 = new ProcessStartInfo();
                 startInfo2.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo2.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+                startInfo2.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                 startInfo2.Arguments = concat2 + " \"" + output + "\"";
                 startInfo2.UseShellExecute = false;
                 startInfo2.RedirectStandardError = true;
@@ -1783,7 +1753,7 @@ namespace NonsensicalVideoGenerator
                     if (e.Data != null)
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
-                process2.Start();
+                ProcessTree.StartTracked(process2);
                 process2.BeginErrorReadLine();
                 process2.WaitForExit();
                 // Delete all paths in calledMedia with LibraryData.Unload()
@@ -1809,7 +1779,7 @@ namespace NonsensicalVideoGenerator
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 string overlayed_video = video.Replace(".mp4", "_chromakey.mp4");
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe";
+                startInfo.FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                 startInfo.Arguments = "-i \"" + video
                         + "\" -i \"" + overlay
                         + "\" -filter_complex \""
@@ -1832,7 +1802,7 @@ namespace NonsensicalVideoGenerator
                     ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
                 Global.rolledForOverlay = true;
@@ -1887,7 +1857,7 @@ namespace NonsensicalVideoGenerator
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     WindowStyle = ProcessWindowStyle.Hidden,
-                    FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe",
+                    FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg),
                     Arguments =  "-i \"" + media + "\" " + rootTypeFilters[rootType] + " -y \"" + output + "\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
@@ -1901,7 +1871,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
             }
@@ -1926,7 +1896,7 @@ namespace NonsensicalVideoGenerator
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     WindowStyle = ProcessWindowStyle.Hidden,
-                    FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe",
+                    FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg),
                     Arguments = $"-ss {startTime.ToString(CultureInfo.InvariantCulture)} -t {(endTime - startTime).ToString(CultureInfo.InvariantCulture)} -i \"{media}\" -i \"{templateImage}\" -filter_complex \"{rootTypeFilters[rootType]}[thumb];[thumb][1:v]overlay[finished]\" -map \"[finished]\" -r {fps.ToString(CultureInfo.InvariantCulture)} -y \"{output}\"",
                     UseShellExecute = false,
                     RedirectStandardError = true,
@@ -1943,7 +1913,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
             }
@@ -1962,7 +1932,7 @@ namespace NonsensicalVideoGenerator
                 ProcessStartInfo startInfo = new ProcessStartInfo()
                 {
                     WindowStyle = ProcessWindowStyle.Hidden,
-                    FileName = Global.useSystemFFmpeg ? "ffmpeg" : @".\bin\ffmpeg.exe",
+                    FileName = ToolPaths.Ffmpeg(Global.useSystemFFmpeg),
                     Arguments = "-ss " + startTime.ToString(CultureInfo.InvariantCulture)
                             + " -t " + (endTime - startTime).ToString(CultureInfo.InvariantCulture)
                             + " -i \"" + video + "\""
@@ -1983,7 +1953,7 @@ namespace NonsensicalVideoGenerator
                         ConsoleOutput.WriteLine(e.Data, Color.Transparent);
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
                 process.BeginErrorReadLine();
                 process.WaitForExit();
             }

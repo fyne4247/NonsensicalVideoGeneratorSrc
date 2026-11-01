@@ -79,19 +79,15 @@ namespace NonsensicalVideoGenerator
                 switch (type)
                 {
                     case CommandType.FFmpeg:
-                        return Global.useSystemFFmpeg ? "ffmpeg" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffmpeg.exe");
+                        return ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                     case CommandType.FFprobe:
-                        return Global.useSystemFFprobe ? "ffprobe" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffprobe.exe");
+                        return ToolPaths.Ffprobe(Global.useSystemFFprobe);
                     case CommandType.Magick:
-                        return Global.useSystemMagick ? "magick" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "magick.exe");
+                        return ToolPaths.Magick(Global.useSystemMagick);
                     case CommandType.YtDlp:
-                        return Global.useSystemYtDlp ? "yt-dlp" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "yt-dlp.exe");
+                        return ToolPaths.YtDlp(Global.useSystemYtDlp);
                     case CommandType.Vocoder:
-#if DESKTOPGL
-                        return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "vocoder");
-#else
-                        return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "vocoder.exe");
-#endif
+                        return ToolPaths.Vocoder();
                     default:
                         return customCommand;
                 }
@@ -159,7 +155,7 @@ namespace NonsensicalVideoGenerator
                     StartInfo = startInfo
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
 #if DESKTOPGL
                 process.StandardInput.Close();
 #endif
@@ -181,7 +177,12 @@ namespace NonsensicalVideoGenerator
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
+#if DESKTOPGL
+                if (!ProcessTree.WaitForExit(process))
+                    ConsoleOutput.WriteLine("Command timed out and was killed: " + startInfo.FileName, Color.Red);
+#else
                 process.WaitForExit();
+#endif
                 return new string[] { output, error };
             }
             else
@@ -256,7 +257,8 @@ namespace NonsensicalVideoGenerator
                 else if(type == CommandType.YtDlp)
                 {
                     // Download YouTube video
-                    string ytdlp = Global.useSystemYtDlp ? "yt-dlp" : @".\bin\yt-dlp.exe";
+                    string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
+                    string deno = ToolPaths.Deno(Global.useSystemYtDlp);
                     bool sound = rootType == "audio";
                     // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
                     /*
@@ -265,8 +267,8 @@ namespace NonsensicalVideoGenerator
                             To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
                             If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
                     */
-                    // Specifying where deno.exe is because it's inside of bin instead of the NVG's root directory
-                    ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:.\\bin\\deno.exe -o \"" + combinedPath + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
+                    // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
+                    ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " -o \"" + combinedPath + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
                     {
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
@@ -290,13 +292,18 @@ namespace NonsensicalVideoGenerator
                             ConsoleOutput.WriteLine(e.Data, Color.Red);
                     };
                     ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                    process.Start();
+                    ProcessTree.StartTracked(process);
 #if DESKTOPGL
                     process.StandardInput.Close();
 #endif
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
+#if DESKTOPGL
+                    if (!ProcessTree.WaitForExit(process))
+                        ConsoleOutput.WriteLine("yt-dlp timed out and was killed.", Color.Red);
+#else
                     process.WaitForExit();
+#endif
                 }
                 else
                 {
@@ -590,19 +597,40 @@ namespace NonsensicalVideoGenerator
             return Global.generator.globalRandom.Next(2) == 0;
         }
         // FFmpeg installed for lua
+        static string lastFfmpegReport = "";
+        static bool warnedFfprobe;
+        static bool warnedMagick;
         public static bool FFmpegInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffmpeg.exe"));
+            ToolReport report = ToolPaths.InspectFfmpeg(Global.useSystemFFmpeg);
+            if (report.Message != lastFfmpegReport)
+            {
+                lastFfmpegReport = report.Message;
+                ConsoleOutput.WriteLine(report.Message, report.Ok ? Color.Transparent : Color.Yellow);
+            }
+            return report.Ok;
         }
         // FFprobe installed for lua
         public static bool FFprobeInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffprobe.exe"));
+            bool ok = ToolPaths.IsAvailable("ffprobe", Global.useSystemFFprobe);
+            if (!ok && !warnedFfprobe)
+            {
+                warnedFfprobe = true;
+                ConsoleOutput.WriteLine("ffprobe missing. Resolved: " + ToolPaths.Ffprobe(Global.useSystemFFprobe), Color.Yellow);
+            }
+            return ok;
         }
         // Magick installed for lua
         public static bool MagickInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "magick.exe"));
+            bool ok = ToolPaths.IsAvailable("magick", Global.useSystemMagick);
+            if (!ok && !warnedMagick)
+            {
+                warnedMagick = true;
+                ConsoleOutput.WriteLine("magick missing. Resolved: " + ToolPaths.Magick(Global.useSystemMagick), Color.Yellow);
+            }
+            return ok;
         }
         // GetRandomLibraryFile for lua
         public static string GetRandomLibraryFile(string rootType = "video", string subType = "materials")

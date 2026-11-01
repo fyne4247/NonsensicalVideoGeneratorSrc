@@ -78,7 +78,7 @@ ffprobe -hide_banner vocoded.wav
 - `ffprobe vocoded.wav`: `Duration: 00:00:02.02, bitrate: 705 kb/s`,
   `pcm_s16le, 44100 Hz, 1 channels, s16` — valid WAV. PASS.
 
-## Linux (ssh 750, Ubuntu 24.04, x86_64, ~/nvg-vocoder/) — PASS
+## Linux (ssh 750, Linux Mint 22.3, Ubuntu noble base, x86_64, ~/nvg-vocoder/) — PASS
 
 - Compiler: `cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0` (gcc)
 - System ffmpeg/ffprobe present; a C compiler exists, so no early stop
@@ -101,9 +101,18 @@ out`), and both outputs are valid WAVs per `ffprobe`. A native
 far as the stock plugin is concerned.
 
 Known limitations: the upstream code is K&R-era C and produces compiler
-warnings on both hosts (harmless, listed above); the app still resolves
-the binary path with `Path.Combine(...)` separators and a `.exe` suffix
-on non-Windows — path/extension wiring for macOS/Linux is hard-1's
-`NvgPlatform` work, not this trial. The binary writes AIFF by default
-only when the output filename ends in `.aif`/`.aiff`; the plugin's
-`.wav` extension gets RIFF/WAVE, which is what the app expects.
+warnings on both hosts (harmless, listed above). The binary writes AIFF
+by default only when the output filename ends in `.aif`/`.aiff`; the
+plugin's `.wav` extension gets RIFF/WAVE, which is what the app expects.
+
+## EOF exit
+
+`build-vocoder.sh` patches `prompt_user` in `main.c` after checking out
+the pinned commit. Upstream ignores the `fgets` result, so `argc <= 1`
+treats a closed stdin as an empty line, prints "You must enter a value."
+and asks again. The patch exits with status 1 when `fgets` returns NULL
+and writes `vocoder: end of input` to stderr. The upstream copyright
+notice stays. The stock plugin always passes `-b 1024` and three paths,
+so the patch only changes the no-argument launch. DesktopGL
+`Command.Call` also closes stdin and applies `ProcessTree.CommandTimeout`
+so an unpatched binary cannot spin.
