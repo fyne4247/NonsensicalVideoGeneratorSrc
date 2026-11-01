@@ -18,7 +18,13 @@ Build prerequisites:
 Runtime prerequisites:
 
 - The unpacked or installed tree from this package. `ffmpeg`, `ffprobe`, and frei0r are inside it. A render does not need a system ffmpeg.
-- `magick` is the official AppImage when `magick -version` works on the build machine. If that fails, usually because FUSE is missing, magick is left out and the app looks on `PATH`.
+- The bundled `ffmpeg` is still linked to four system libraries. On Debian and Ubuntu install:
+  - `zlib1g` (`libz.so.1`)
+  - `libbz2-1.0` (`libbz2.so.1.0`)
+  - `liblzma5` (`liblzma.so.5`)
+  - `libasound2t64`, or `libasound2` on older releases (`libasound.so.2`)
+- `magick`, when the build machine can run `magick -version`, is the official ImageMagick AppImage. That AppImage needs `libfuse2` (`libfuse.so.2`). If FUSE is missing, run the bundled binary with extraction instead of mounting: `bin/magick --appimage-extract-and-run -version`. If `magick -version` fails on the build machine, the AppImage is left out and the app looks for `magick` on `PATH`.
+- `install-linux.sh` runs `ldconfig -p` and prints a warning for any of those libraries it does not find. The warning does not stop the install.
 - An X11 display for the window (`DISPLAY`). Wayland was not given its own check.
 
 No `sudo`, no `apt`, and no `libjpeg` symlink. Those belonged to the Proton notes and are not used here.

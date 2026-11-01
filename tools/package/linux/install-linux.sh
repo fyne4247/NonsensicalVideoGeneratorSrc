@@ -73,6 +73,37 @@ data_root() {
     printf '%s/.local/share/%s\n' "$HOME" "$APP_DIR_NAME"
 }
 
+ldconfig_lists() {
+    ldconfig -p 2>/dev/null | grep -F -- "$1 (" >/dev/null 2>&1
+}
+
+warn_if_soname_missing() {
+    soname=$1
+    packages=$2
+    if ldconfig_lists "$soname"; then
+        return 0
+    fi
+    printf 'warning: %s was not found by ldconfig -p. On Debian and Ubuntu the package is %s.\n' "$soname" "$packages" >&2
+}
+
+warn_runtime_libraries() {
+    if ! command -v ldconfig >/dev/null 2>&1; then
+        printf 'warning: ldconfig is not on PATH, so this installer did not check zlib, bzip2, lzma, ALSA, or FUSE.\n' >&2
+        return 0
+    fi
+    if [ -x "$PREFIX/bin/ffmpeg" ]; then
+        warn_if_soname_missing libz.so.1 zlib1g
+        warn_if_soname_missing libbz2.so.1.0 libbz2-1.0
+        warn_if_soname_missing liblzma.so.5 liblzma5
+        warn_if_soname_missing libasound.so.2 "libasound2t64 or libasound2"
+    fi
+    if [ -x "$PREFIX/bin/magick" ]; then
+        if ! ldconfig_lists libfuse.so.2; then
+            printf 'warning: libfuse.so.2 was not found by ldconfig -p. The ImageMagick AppImage needs the libfuse2 package. If FUSE is unavailable, run: %s --appimage-extract-and-run -version\n' "$PREFIX/bin/magick" >&2
+        fi
+    fi
+}
+
 prefix_is_unsafe() {
     prefix=$1
     home=$HOME
@@ -222,6 +253,8 @@ if [ -n "$OLD" ] && [ -d "$OLD" ]; then
     rm -rf "$OLD"
     OLD=
 fi
+
+warn_runtime_libraries
 
 printf 'Installed Nonsensical Video Generator\n'
 printf '  App: %s\n' "$PREFIX"
