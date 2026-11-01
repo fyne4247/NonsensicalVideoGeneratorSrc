@@ -342,3 +342,21 @@ Windows final check: WindowsDX full `dotnet build` of team 4a6909b in the owner-
 3. **Dropped helpers:** macOS has no `magick`, and neither OS has frei0r. Stock plugins using them fail with the missing-tool message. Per the plan, dropping features needs the owner's decision.
 4. osx-x64 DMG not built. No window was looked at. The macOS `sandbox_extension_issue_file_to_process failed` log line is harmless (startup continued). No notarisation (expected).
 **Decision needed from the owner:** bundle a source-built CLI ffmpeg/ffprobe with x264 (and frei0r/magick), or document ffmpeg/magick/frei0r as runtime prerequisites for the community build.
+
+## Owner decision + triage — bundled media tools (Opus, 2026-11-01)
+**Owner decision (2026-11-01): bundle everything.** Community packages must render out of the box: CLI ffmpeg/ffprobe with x264, frei0r plugins on both OSes, and ImageMagick on macOS. All are built from pinned sources; no Homebrew/apt copies.
+**Staffing:** 1 hard worker, `flow-1101-0201-hard-5` (Grok 4.7). Why hard: building native toolchains from source without system packages or nasm, GPL linkage and licence records, install-name/rpath fixing for new binaries. Base: team branch HEAD 899158a.
+Owns: `tools/ffmpeg7/**` (extend, or add a CLI build script beside the libs build), new `tools/x264/**`, `tools/frei0r/**`, `tools/magick/**`; `tools/package/**`; `MACOS_BUILD_INSTRUCTIONS.md`, `LINUX_BUILD_INSTRUCTIONS.md`, `README.md` platform section; `src/backend/platform/ToolPaths.cs` plus the matching tests in `tests/NvgMedia.Tests/**`.
+Must not touch: other `src/**`, the csproj, `Directory.Build.props`, `content/**`, `tools/vocoder/**`, `publish.*`, `steamcmd*`, `proton.sh`, `start.sh`, `AGENT_HANDOFF.md`, `PLAN_*.md`, the main checkout.
+Work:
+1. x264 from a pinned source commit (static, `--disable-asm` if nasm is missing; record the speed cost). CLI `ffmpeg` + `ffprobe` n7.1.1 with `--enable-gpl --enable-libx264 --enable-frei0r`, linked against the bundled 7.1 shared libs (one FFmpeg build for both, so ABI and licence stay consistent) or static. Check that `ffmpeg -encoders` lists libx264 and aac, and that every `ToolPaths.RequiredFilters` entry exists.
+2. frei0r plugins from a pinned source (1.8.x or newer), built on both OSes. Install them under `<resource root>/bin/frei0r-1/` (Program.cs already points `FREI0R_PATH` there). Check the effects the stock plugins use (at least `nervous` and `colorize` from rave.lua) through the bundled ffmpeg.
+3. macOS ImageMagick 7 from a pinned source, with the minimum delegates the stock plugins need (at least PNG and JPEG; build zlib/libpng/libjpeg from source if needed). No Homebrew, no X11. If a delegate can't be built without system packages, stop and report which one.
+4. `ToolPaths`: on macOS, after the bundled `bin/`, also search `/opt/homebrew/bin` and `/usr/local/bin` before giving up, because Finder-launched apps get launchd's minimal PATH. Add a unit test for it.
+5. Packages: rebuild the osx-arm64 DMG and the linux-x64 tarball with the new tools. Rewrite install names/RUNPATH for every new binary (`otool -L` and `ldd` clean). Update `THIRD_PARTY.md` (version, commit, licence and source URL for each). Ship the GPL-required source offer/notice. Fix MACOS_BUILD_INSTRUCTIONS.md so its "no Homebrew needed" claim is true.
+Acceptance and tests:
+- `dotnet test tests/NvgMedia.Tests` on the Mac and 750.
+- From each **installed package**, with a temp HOME/NVG_DATA_DIR and an empty `PATH=/usr/bin:/bin`: the bundled ffmpeg renders `speed.lua`'s filter and a `frei0r=filter_name=nervous` pass to an h264+aac MP4 (check with ffprobe), and bundled `magick` converts a PNG→JPEG on macOS. On 750, run the Linux AppImage magick check too, and record whether it needs FUSE.
+- `otool -L`/`ldd` show no Homebrew, `/usr/local` or missing libraries. No Steam/SharpCompress/ZstdSharp files.
+- Report package sizes, each tool's version/licence, the build time, and everything not verified. GUI launch last, one attempt.
+- On 750 use only `~/nvg-p5/`. No sudo/apt/brew, no pushes or uploads. Temp HOME for tests. Quote all paths.
