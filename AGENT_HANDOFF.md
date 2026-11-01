@@ -606,3 +606,12 @@ Acceptance: unit tests for the subType validation with both separators. A headle
 - Remaining robustness note (upstream, not fixed): any non-ScriptRuntimeException from a post-render addon still fails the whole render.
 - Expected merge conflict: `tests/NvgPlatform.Tests/NvgPlatform.Tests.csproj` (one added line each from hard-8 and hard-10; keep both).
 - Main checkout clean. Worker closed.
+
+## Review (round 1) — hard-9 (audio + restart) — Opus, 2026-11-01
+Commit `d2d3638`; **needs fix** (one round sent).
+- Music, real bug: `UserInterface.FindMusic` wraps next-track/random/`MediaPlayer.Play` in `#if WINDOWSDX`, and the `#else` only sets Paused. So on DesktopGL music never starts, "Next Music Track" does nothing, and the loop-music block calls FindMusic (→ SaveData.Save) every frame while Stopped. hard-9 worked around it with a per-frame `GlobalContent.EnsureDesktopMusic` because UserInterface.cs was owned by hard-8. Fix round: hard-8 is closed, so hard-9 now gets UserInterface.cs (FindMusic only), removes the #if, and drops the workaround.
+- Sound effects: no code defect found. OpenAL Soft 1.22 uses the CoreAudio default output. Logs show it opening "External Headphones", "Dime 3" (Bluetooth) and "Cassette" in different runs, as the Mac's default moved. The owner's silent run probably went to a default output they weren't listening on. The new build logs `Audio output: <device>` in console.txt. Known limit (not fixed, unverified): OpenAL Soft 1.22 may not follow a default-device change made after launch.
+- Linux 750: OpenAL opens the pulse backend on a real sink (pactl sink input), not null.
+- Restart: `AppRestart.Plan` keeps Windows on steam://run/<appId> (UseShellExecute, verb open). macOS `.app`: `open -n [--env NVG_DATA_DIR=…] <bundle>`. Linux / unbundled: re-exec `Environment.ProcessPath`. Approved as is.
+- Tests (worker): NvgPlatform 24/24 and NvgMedia 10/10 on Mac and 750; arm64 publish 0 errors.
+- csproj conflict: hard-9 adds 2 lines to the test csproj (with hard-8's 1 and hard-10's 1). Keep all.
