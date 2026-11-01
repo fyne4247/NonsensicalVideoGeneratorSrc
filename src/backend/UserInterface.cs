@@ -287,7 +287,6 @@ namespace NonsensicalVideoGenerator
                 }
                 Global.firstSongPlayed = true;
             }
-#if WINDOWSDX
             else
             {
                 music = ThemeManager.GetNextSongIndex(music);
@@ -314,9 +313,6 @@ namespace NonsensicalVideoGenerator
             {
                 //ConsoleOutput.WriteLine("Failed to play music: " + ex.Message, Color.Red);
             }
-#else
-            _musicState = MusicState.Paused;
-#endif
             SaveData.saveValues["LastMusicTrack"] = music.ToString(CultureInfo.InvariantCulture);
             SaveData.Save();
         }

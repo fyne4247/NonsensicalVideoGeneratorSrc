@@ -19,9 +19,6 @@ namespace NonsensicalVideoGenerator
         private static Dictionary<string, SpriteFont> fonts = new Dictionary<string, SpriteFont>();
         private static Dictionary<SpriteFont, Vector2> fontOffsets = new Dictionary<SpriteFont, Vector2>();
         private static List<Song> songs = new List<Song>();
-#if DESKTOPGL
-        private static bool desktopMusicFailed = false;
-#endif
         public static void LoadDefaultContent(ContentManager contentManager, GraphicsDevice graphicsDevice)
         {
 #if DESKTOPGL
@@ -179,9 +176,6 @@ namespace NonsensicalVideoGenerator
             textures.Clear();
             fonts.Clear();
             songs.Clear();
-#if DESKTOPGL
-            desktopMusicFailed = false;
-#endif
         }
         public static bool AddTexture(string name, Texture2D texture)
         {
@@ -269,49 +263,6 @@ namespace NonsensicalVideoGenerator
             }
             spriteBatch.DrawString(spriteFont, text, position, color);
         }
-#if DESKTOPGL
-        /// <summary>
-        /// DesktopGL FindMusic never calls MediaPlayer.Play, so Resume is a no-op.
-        /// When the UI is ready to hear music and the player is stopped, start the
-        /// track at volume 0. The existing fade-in in UserInterface then raises it.
-        /// The first start stays at 0 so a default 50% music volume does not blip to full.
-        /// </summary>
-        public static void EnsureDesktopMusic(double totalMilliseconds)
-        {
-            if (desktopMusicFailed || !Global.ready)
-                return;
-            if (totalMilliseconds <= Global.readyTime + Global.waitReady)
-                return;
-            if (!FramePlayer.canPlayBgMusic || songs.Count == 0 || UserInterface.instance == null)
-                return;
-            if (MediaPlayer.State != MediaState.Stopped)
-                return;
-            bool first = !Global.firstSongPlayed;
-            int track = AudioDiagnostics.ChooseTrack(
-                first,
-                SaveData.saveValues.ContainsKey("LastMusicTrack") ? SaveData.saveValues["LastMusicTrack"] : null,
-                UserInterface.instance.music,
-                songs.Count,
-                Global.generator.globalRandom.Next(0, songs.Count));
-            UserInterface.instance.music = track;
-            Global.firstSongPlayed = true;
-            SaveData.saveValues["LastMusicTrack"] = track.ToString(CultureInfo.InvariantCulture);
-            SaveData.Save();
-            try
-            {
-                if (first)
-                    MediaPlayer.Volume = 0f;
-                MediaPlayer.Play(songs[track]);
-                if (first)
-                    MediaPlayer.Volume = 0f;
-            }
-            catch (Exception ex)
-            {
-                desktopMusicFailed = true;
-                ConsoleOutput.WriteLine("Desktop music start failed: " + ex.Message, Color.Red);
-            }
-        }
-#endif
         public static void PlaySound(string name)
         {
             // Play sound if it exists.

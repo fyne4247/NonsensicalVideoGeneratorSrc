@@ -1,49 +1,15 @@
 using System;
-using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace NonsensicalVideoGenerator
 {
     /// <summary>
-    /// Pure helpers for DesktopGL music selection, plus a read-only macOS default-output name.
-    /// OpenAL Soft already opens the CoreAudio default. This names that device in the log.
+    /// Read-only macOS default-output name for the startup log.
+    /// OpenAL Soft already opens the CoreAudio default. This names that device.
     /// It does not pin a different device.
     /// </summary>
     public static class AudioDiagnostics
     {
-        /// <summary>
-        /// Track index the Windows FindMusic path would choose.
-        /// The first song uses LastMusicTrack, and a missing or negative value uses randomIndex.
-        /// Later songs advance and wrap.
-        /// </summary>
-        public static int ChooseTrack(bool firstSong, string? lastTrack, int currentIndex, int songCount, int randomIndex)
-        {
-            if (songCount <= 0)
-                return 0;
-            int music;
-            if (firstSong)
-            {
-                if (!int.TryParse(lastTrack, NumberStyles.Integer, CultureInfo.InvariantCulture, out music))
-                    music = -1;
-            }
-            else
-            {
-                music = NextIndex(currentIndex, songCount);
-            }
-            if (music < 0 || music >= songCount)
-                music = Wrap(randomIndex, songCount);
-            return music;
-        }
-
-        public static int NextIndex(int current, int songCount)
-        {
-            if (songCount <= 0)
-                return 0;
-            if (current < 0 || current >= songCount - 1)
-                return 0;
-            return current + 1;
-        }
-
         public static string FormatOutputNote(string? platform, string? deviceName)
         {
             if (platform == "macos")
@@ -73,14 +39,6 @@ namespace NonsensicalVideoGenerator
             {
                 return null;
             }
-        }
-
-        static int Wrap(int value, int count)
-        {
-            int wrapped = value % count;
-            if (wrapped < 0)
-                wrapped += count;
-            return wrapped;
         }
 
         static string? QueryMacDefaultOutput()
