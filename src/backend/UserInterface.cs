@@ -42,7 +42,11 @@ namespace NonsensicalVideoGenerator
         {
             ConsoleOutput.WriteLine("Creating new UserInterface instance...", Color.Transparent);
             _graphics = new GraphicsDeviceManager(this);
+#if DESKTOPGL
+            Content.RootDirectory = DataRoots.ContentDirectory;
+#else
             Content.RootDirectory = "Content";
+#endif
             IsMouseVisible = true;
             instance = this;
             if(Global.parameters.Contains("-unlockfps"))
@@ -351,6 +355,16 @@ namespace NonsensicalVideoGenerator
                 try
                 {
                     string? randomBootMovie = PluginHandler.PickRandomBootMovie();
+#if DESKTOPGL
+                    // Plugins are not loaded yet, so the first launch has no PluginSettings.json
+                    // and PickRandomBootMovie returns null. Play the seeded stock movie.
+                    if (string.IsNullOrEmpty(randomBootMovie))
+                    {
+                        string stockBoot = Path.Combine("plugins", "user", "stock", "defaultlogo.mp4");
+                        if (!File.Exists("PluginSettings.json") && File.Exists(stockBoot))
+                            randomBootMovie = stockBoot;
+                    }
+#endif
                     if(randomBootMovie != null && File.Exists(randomBootMovie))
                     {
                         videoPath = VideoCache.GetCachePath(randomBootMovie);
@@ -364,7 +378,8 @@ namespace NonsensicalVideoGenerator
                     }
                     else
                     {
-                        ConsoleOutput.WriteLine("Could not load boot video: " + videoPath, Color.Red);
+                        string shown = string.IsNullOrEmpty(randomBootMovie) ? "(no enabled boot movie)" : Path.GetFullPath(randomBootMovie);
+                        ConsoleOutput.WriteLine("Could not load boot video: " + shown, Color.Red);
                     }
                 }
                 catch (Exception e)
@@ -446,9 +461,6 @@ namespace NonsensicalVideoGenerator
             }
             // Update screens.
             ScreenManager.Update(gameTime);
-#if DESKTOPGL
-            TrialGate.Tick(gameTime, GraphicsDevice, this);
-#endif
             base.Update(gameTime);
         }
         protected override void Draw(GameTime gameTime)

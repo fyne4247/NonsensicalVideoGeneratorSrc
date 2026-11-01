@@ -33,11 +33,11 @@ namespace NonsensicalVideoGenerator
         public static double audioLength = 0;
         public static double currentAudioTime = 0;
         public static bool canPlayBgMusic = true;
-        static string ExtFrames => NvgPaths.Native(@".\temp\extracted\frames");
-        static string ExtAudio => NvgPaths.Native(@".\temp\extracted\audio.wav");
-        static string ExtAudioBmp => NvgPaths.Native(@".\temp\extracted\audio.bmp");
-        static string ExtRoot => NvgPaths.Native(@".\temp\extracted");
-        static string ExtFramePattern => NvgPaths.Native(@".\temp\extracted\frames\%d.bmp");
+        static string ExtFrames => Path.Combine("temp", "extracted", "frames");
+        static string ExtAudio => Path.Combine("temp", "extracted", "audio.wav");
+        static string ExtAudioBmp => Path.Combine("temp", "extracted", "audio.bmp");
+        static string ExtRoot => Path.Combine("temp", "extracted");
+        static string ExtFramePattern => Path.Combine("temp", "extracted", "frames", "%d.bmp");
         private static void ExtractFramesAndAudio()
         {
             try

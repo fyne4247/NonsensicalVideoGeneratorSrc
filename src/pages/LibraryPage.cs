@@ -79,13 +79,18 @@ namespace NonsensicalVideoGenerator
                             if (path.Key == currentLibraryType)
                             {
                                 // Open directory
+                                string folder = Path.GetFullPath(Path.Combine("library", path.Value));
+#if DESKTOPGL
+                                PlatformShell.Open(folder);
+#else
                                 ProcessStartInfo startInfo = new()
                                 {
-                                    FileName = Path.GetFullPath(NvgPaths.Native(@"library\" + path.Value)),
+                                    FileName = folder,
                                     UseShellExecute = true,
                                 };
                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                 Process.Start(startInfo);
+#endif
                                 return true;
                             }
                         }
@@ -924,7 +929,6 @@ namespace NonsensicalVideoGenerator
                                         demandChange = true;
                                         GlobalContent.PlaySound("Select");
                                         return true;
-#if WINDOWSDX
                                     case "DownloadMediaButton":
                                         if(!left)
                                             break;
@@ -940,7 +944,11 @@ namespace NonsensicalVideoGenerator
                                                     {
                                                         Global.generator.progressText = L.T(0, "Library:Downloading");
                                                         downloading = true;
+#if WINDOWSDX
                                                         string clipboard = System.Windows.Clipboard.GetText();
+#else
+                                                        string clipboard = PlatformClipboard.GetText();
+#endif
                                                         // Remove invalid characters
                                                         clipboard = clipboard.Replace("\r", "");
                                                         clipboard = clipboard.Replace("\t", "");
@@ -965,7 +973,6 @@ namespace NonsensicalVideoGenerator
                                             GlobalContent.PlaySound("Error");
                                         }
                                         return true;
-#endif
                                     case "PageLeftButton":
                                         if(!left)
                                             break;
@@ -1148,12 +1155,16 @@ namespace NonsensicalVideoGenerator
                                                 else
                                                 {
                                                     // Open the video in the default video player.
+#if DESKTOPGL
+                                                    PlatformShell.Open(file.Path);
+#else
                                                     ProcessStartInfo startInfo = new ProcessStartInfo()
                                                     {
                                                         FileName = file.Path,
                                                         UseShellExecute = true
                                                     };
                                                     Process.Start(startInfo);
+#endif
                                                 }
                                             }
                                             if (right)
@@ -1392,13 +1403,18 @@ namespace NonsensicalVideoGenerator
                                             if(path.Key == currentLibraryType)
                                             {
                                                 // Open directory and select file
+                                                string folder = Path.GetFullPath(Path.Combine("library", path.Value));
+#if DESKTOPGL
+                                                PlatformShell.Open(folder);
+#else
                                                 ProcessStartInfo startInfo = new()
                                                 {
-                                                    FileName = Path.GetFullPath(NvgPaths.Native(@"library\" + path.Value)),
+                                                    FileName = folder,
                                                     UseShellExecute = true,
                                                 };
                                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                                 Process.Start(startInfo);
+#endif
                                                 GlobalContent.PlaySound("Option");
                                                 return true;
                                             }

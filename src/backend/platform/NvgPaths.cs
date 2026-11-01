@@ -3,7 +3,7 @@ using System.IO;
 namespace NonsensicalVideoGenerator
 {
     /// <summary>
-    /// Trial helper. On Windows the path is returned unchanged.
+    /// On Windows the path is returned unchanged.
     /// On macOS and Linux, backslashes become the native separator.
     /// </summary>
     public static class NvgPaths
