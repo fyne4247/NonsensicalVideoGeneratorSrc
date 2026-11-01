@@ -112,7 +112,10 @@ if [ "$target_arch" != "$host_arch" ]; then
     HOST_FLAGS="--host=$cc_triple --build=$build_triple"
     echo "==> cross compile ImageMagick delegates for $target_arch on $host_arch"
     if [ "$(uname -s)" = "Darwin" ]; then
-        JPEG_ARCH_ARGS="-DCMAKE_OSX_ARCHITECTURES=$target_arch -DCMAKE_SYSTEM_PROCESSOR=$target_arch"
+        # CMAKE_OSX_ARCHITECTURES selects the slice. Setting
+        # CMAKE_SYSTEM_PROCESSOR makes CMake 4 treat this as a cross
+        # compile and then fail to find ar and ld.
+        JPEG_ARCH_ARGS="-DCMAKE_OSX_ARCHITECTURES=$target_arch -DCMAKE_AR=/usr/bin/ar -DCMAKE_RANLIB=/usr/bin/ranlib"
     else
         JPEG_ARCH_ARGS="-DCMAKE_SYSTEM_PROCESSOR=$target_arch"
     fi
