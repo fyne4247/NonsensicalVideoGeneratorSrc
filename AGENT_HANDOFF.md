@@ -401,3 +401,45 @@ Not verified / limits:
 - Linux ffmpeg relies on system libz/libbz2/liblzma/libasound (now documented and warned about).
 - A missing vocoder/yt-dlp/deno/frei0r shows a raw process or ffmpeg error rather than a friendly message. All are bundled now.
 - Still pending human/computer-use: picker, audible preview, file drop, clipboard, TTS on Mac and Linux; Windows interactive launch.
+
+## Defect found + triage — writes into the app bundle (Opus, 2026-11-01)
+**Defect (blocks the packages):** hard-5's installed test copy `/tmp/nvg-hard5/installed/NonsensicalVideoGenerator.app` now fails `codesign -v` ("a sealed resource is missing or invalid"). The app created `Contents/MacOS/cache/j5d5gogk.ank.mp4` at runtime (boot-movie cache).
+Root cause: round P's "CurrentDirectory = data root" only redirected *relative* paths. Many writes build absolute paths from `Assembly.GetExecutingAssembly().Location`, so they still land in the resource root:
+- `src/data/Cache.cs:20,39` — video cache
+- `src/backend/Generator.cs:60,1273` — renders/temp.mp4 — plus the `WorkingDirectory` of every ffmpeg/ffprobe process (lines 1319–1943)
+- `src/pages/GeneratePage.cs:253` — render folder
+- `src/data/PluginHandler.cs:142` — command cwd; `:238`, `:760` — library downloads; `:2088` — publish temp
+- `src/pages/LibraryPage.cs:494` — temp thumb.bmp
+- `src/pages/DebugPage.cs:302` and `src/backend/Program.cs:31` — console.txt
+- `src/backend/Kiwano.cs:16`
+- `src/data/LibraryData.cs:438` — reads locales; read-only, may stay
+On macOS this breaks the signature and fails under /Applications for non-admin users. On Linux, user data gets split between the install prefix and the XDG root, and an upgrade (which replaces the app dir) **deletes renders/cache**. This was missed in the round-P review (Opus).
+**Hold:** GUI acceptance on the current DMG is paused. Renders and the cache would land in the bundle.
+
+### flow-1101-0201-hard-6 — route all writable paths to the data root (Grok 4.7, hard)
+Why hard: about 12 files, each path must be classed as read-only resource or writable data, Windows behaviour must not change, and a mistake loses user renders. Base: team HEAD (integrated 12b171d + this triage).
+Owns: new `src/backend/platform/AppPaths.cs` (or extend `DataRoots.cs`); `src/data/{Cache,PluginHandler,LibraryData}.cs`; `src/backend/{Generator,Program,Kiwano}.cs`; `src/pages/{GeneratePage,LibraryPage,DebugPage}.cs`; and any other `src/**` file that writes via the assembly location (list each one in the report); `tests/NvgPlatform.Tests/**`.
+Must not touch: `tools/**`, csproj, `Directory.Build.props`, docs, `AGENT_HANDOFF.md`, the main checkout.
+Work:
+1. One helper: `AppPaths.Writable` = `DataRoots.DataRoot` on DesktopGL, and exactly today's assembly dir on Windows; `AppPaths.Resources` = the resource root.
+2. Every write and every child-process `WorkingDirectory` uses `Writable`. Read-only lookups (Content, locales, credits, bin tools, frei0r, FfmpegNative, ThemeManager) keep `Resources`. The Steam publish path (`PluginHandler.cs:2344`) is Windows/Steam-only: leave its behaviour unchanged.
+3. Lua plugins see the same paths as before, relative to the job dir/data root. Check `rave.lua` and `speed.lua` still find their files.
+Acceptance and tests:
+- Unit tests: Writable/Resources resolve per OS, and Windows returns the assembly dir.
+- New read-only-bundle smoke test (Mac and 750): build DesktopGL, copy the output to a temp dir, make the copy read-only (`chmod -R a-w`), touch a marker, launch with a temp `NVG_DATA_DIR`/HOME for 30 s (boot movie triggers the cache). `find <copy> -newer marker` must be empty, and the cache file must appear under the data root. Restore permissions afterwards so the temp dir can be cleaned.
+- `dotnet test` for both test projects on Mac and 750; `dotnet build -p:NvgPlatform=DesktopGL` on both.
+- Report every changed call site, sorted into writable and read-only. Opus runs the Windows VM build afterwards.
+
+### flow-1101-0201-hard-7 — osx-x64 DMG + final package rebuild (Grok 4.7, hard)
+Why hard: cross-building x264/FFmpeg/frei0r/ImageMagick for x86_64 on an arm64 Mac without Homebrew, and checking Mach-O architectures. Runs in parallel with hard-6; there are no shared files.
+Owns: `tools/**` (incl. `tools/package/**`), `MACOS_BUILD_INSTRUCTIONS.md`, `LINUX_BUILD_INSTRUCTIONS.md`, `README.md` platform section.
+Must not touch: `src/**`, `tests/**`, csproj, `Directory.Build.props`, `AGENT_HANDOFF.md`, the main checkout.
+Phase A (now):
+- Make `build-macos-installer.sh osx-x64` work on this arm64 Mac. Use an `-arch x86_64` clang build of every native dependency, and the x64 .NET SDK (`~/.dotnet-nvg-x64`) for the publish if needed.
+- `lipo -archs`/`file` must show x86_64 only for every Mach-O in the x64 app. **No arm64 binaries inside the x64 app.**
+- Smoke test under Rosetta: bundled ffmpeg speed + frei0r render, magick PNG→JPEG, and a 30 s app launch with temp data roots.
+- If a dependency can't be cross-built without system packages, stop and report the concrete blocker.
+Phase B (only after Opus messages that hard-6 is merged into the team branch):
+- `git merge` the team branch, delete only your own old outputs, and rebuild osx-arm64 DMG, osx-x64 DMG and the linux-x64 tarball (on 750, `~/nvg-p7/`) from clean dirs.
+- Run hard-6's read-only-bundle smoke test against each installed package: no new files inside the app, cache under the data root, and `codesign -v` still passes after the launch.
+- Report sizes, sha256, paths.
