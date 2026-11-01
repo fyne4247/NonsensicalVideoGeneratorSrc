@@ -46,3 +46,8 @@ When implementation begins, verify `ssh 750` connectivity after boot, inspect OS
 - No remote files changed, no packages installed, no build/run attempted.
 - Opus was closed at the end of the planning assignment. Sol's role explicitly prohibits creating a replacement Opus; owner must reopen Fish Flow and press r to restore it. No agent was spawned.
 - NEXT ACTION: Restore Opus through Fish Flow, then send the saved plans, this Linux baseline and the owner request. Continue at the shared feasibility-trial gate rather than redoing planning.
+
+## Opus restored — 2026-11-01
+- Received runtime notice that flow-1101-0201-opus has been restarted. Sent the saved plans, reviewed checkpoints, owner installer/distribution constraints and successful Linux SSH baseline to that existing agent. Delivery accepted by atmux.
+- Requested a concrete next feasibility-trial assignment/staffing recommendation, without redoing planning. Reply pending; no implementation assigned by Sol.
+- NEXT ACTION: Handle Opus's substantive reply at the shared native trial gate. Keep Opus available as requested by the owner.
