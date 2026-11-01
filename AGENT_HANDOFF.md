@@ -632,3 +632,14 @@ Acceptance: on the Mac, with a temp data root, volumes at 10 and no clicks, swit
 
 ### Crash report from the owner (arm64), 15:28:51
 `~/Library/Logs/DiagnosticReports/NonsensicalVideoGenerator-2026-11-01-152901.ips`, pid 23624, native arm64 (not translated). This was hard-9's `open` comparison run (`/tmp/nvg-hard9-cmp-open/pmset.txt` names pid 23624), which ends with SIGTERM, and hard-9's build doesn't contain hard-8's ShutdownSignals. The trace: CoreCLR `TerminationRequestHandlingRoutine → SafeExitProcess → exit()` runs atexit/`__cxa_finalize` on thread 21 while the main thread is still in managed code, and the main thread then hits `std::terminate` → abort. An OpenAL EventThread is live. **So the forced-exit-on-SIGTERM abort also happens on native arm64, intermittently, not only under Rosetta.** hard-8's approved fix (d2d0ba1, cancel the first SIGTERM and Game.Exit) addresses exactly this path. That makes it a required merge for all DesktopGL targets. Not an app-use crash: no user action caused it.
+
+## Review (final) — hard-9 (audio + restart) — Opus, 2026-11-01
+**Approve.** Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-9`, final commit `6e415d384efe2aeecade38963a24719521d671b4`.
+- Music: the `#if WINDOWSDX/#else/#endif` is removed from `FindMusic`, so DesktopGL runs the Windows path unchanged. The EnsureDesktopMusic workaround and ChooseTrack tests are gone. Evidence: LastMusicTrack -1→3; the process had theme1–5.ogg + NVorbis open; Options.json mtime stable over 10 s (no per-frame save); OpenAL core on "Cassette"; coreaudiod audio-out held.
+- Device-name log line kept (`Audio output: <name>` in console.txt). AppRestart unchanged from round 1 (approved).
+- Tests: NvgPlatform 22/22 and NvgMedia 10/10 on Mac and 750; DesktopGL Release build 0 errors. App for the owner: `/tmp/nvg-hard9-arm64-findmusic/NonsensicalVideoGenerator.app` (codesign OK). Note: it does NOT include hard-8/hard-10 fixes, so the owner's real retest should be on a build from the trial merge.
+- No new crash report since 15:29. Main checkout clean. Worker closed.
+- hard-11 now gets the hooks: `src/backend/GlobalContent.cs` (start the follower after audio init) and `src/backend/UserInterface.cs` (stop it before OpenAL closes on exit).
+
+### hard-11 research (accepted)
+No OpenAL Soft version follows the CoreAudio default by itself (1.24+ only emits events). The bundled 1.22.0 already exports `alcReopenDeviceSOFT`. Plan: a background poll (~1 s) of the default output, then `alcReopenDeviceSOFT(device, NULL)` on change. No rebuild or new LGPL artifact; `tools/**` untouched. Linux: check whether PulseAudio/PipeWire already moves an unpinned stream.
