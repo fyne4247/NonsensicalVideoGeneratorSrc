@@ -151,3 +151,8 @@ No shared files between the two workers. No sequencing needed. Remote dirs are s
 - Asked Opus to coordinate Windows verification and bounded L2–L4 production work from the trial: remove experimental hooks/stubs, append DEBUG/TRACE constants, fix vocoder no-argument spin with a focused check, automate content/dependency staging, establish writable data roots, then installers. Reviewed integration only; no main merge until acceptance and checks pass.
 - Shared trial branches remain preserved and unmerged into the team as delivered features. No full-suite evidence exists beyond the builds reported by Opus; absence of a test project does not substitute for the remaining real UI/Windows validation.
 - NEXT ACTION: Opus coordinates the authorized Windows check and next bounded assignments; Sol awaits an actionable blocker or consolidated review and maintains this handoff. Nothing pushed/published/deployed.
+
+## Coordination delivery blocker — 2026-11-01
+- Two sends of the authorized continuation/VM instructions to Opus were accepted into atmux's queue, then each produced a delivery-failed notification (pane %9, three internal attempts). Stopped retrying.
+- One failure-driven status/capture check showed Opus pane alive but idle at its previous review response. Receipt and task start are NOT confirmed; do not claim Windows verification has begun.
+- Owner VM approval remains recorded above and valid. NEXT ACTION: Restore message delivery to existing Opus session (or open its pane and provide the instruction to read this handoff), then coordinate the authorized Windows check. Do not create a replacement agent or repeat unbounded message retries.
