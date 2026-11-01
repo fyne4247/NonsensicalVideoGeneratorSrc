@@ -14,6 +14,28 @@ namespace NonsensicalVideoGenerator
         static void Main(string[] args)
         {
 #if DESKTOPGL
+            // Headless check: Command.Call on the native vocoder with stdin closed.
+            // Does not load saves or open a window. Experimental trial hook.
+            if (Array.Exists(args, a => a == "-vocoder-stdin"))
+            {
+                int idx = Array.IndexOf(args, "-vocoder-stdin");
+                string vocArgs = idx >= 0 && idx + 1 < args.Length ? string.Join(" ", args, idx + 1, args.Length - (idx + 1)) : "";
+                Command cmd = new Command(CommandType.Vocoder, vocArgs);
+                Console.WriteLine("VOCODER_PATH " + cmd.command);
+                try
+                {
+                    string[] result = cmd.Call();
+                    Console.WriteLine("VOCODER_STDIN_DONE");
+                    Console.WriteLine("VOCODER_OUT " + result[0]);
+                    Console.WriteLine("VOCODER_ERR " + result[1]);
+                    Environment.Exit(0);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("VOCODER_STDIN_FAIL " + ex.GetType().Name + " " + ex.Message);
+                    Environment.Exit(2);
+                }
+            }
             FfmpegNative.Register();
             Global.useSystemFFmpeg = true;
             Global.useSystemFFprobe = true;

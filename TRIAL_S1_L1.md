@@ -110,3 +110,19 @@ Localized:
 - Boot movie log line `Could not load boot video:` had an empty path. The fixture preview still started.
 
 `public` was already at `38995cb4a419b7e511f1f1d462e01fb5b0dcbf5c`. Locales copied from `public/locales`.
+
+## Vocoder stdin (added after the gate)
+
+DesktopGL `Command.Call` sets `RedirectStandardInput` and closes `StandardInput` immediately after `Start`. `CommandType.Vocoder` resolves `bin/vocoder` with no `.exe`. WindowsDX still resolves `bin/vocoder.exe` and does not redirect stdin. `-vocoder-stdin` is a headless hook that runs that call and exits before saves or a window. It is experimental.
+
+The binary is easy-1's build (borsboom/vocoder `3faed27`). Mac: `/tmp/nvg-easy1-test/out/vocoder`, symlinked into the Debug output `bin/vocoder`. Linux: `~/nvg-vocoder/out/vocoder`, symlinked into `~/nvg-trial/vocoder-probe/bin/vocoder`. This trial did not rebuild it and did not write `~/nvg-vocoder/` or `tools/vocoder/`.
+
+Bound: Python `Popen.wait` of 8 seconds, then `SIGKILL` of the process group. macOS has no `timeout`.
+
+| Call | macOS arm64 | Linux x64 |
+| --- | --- | --- |
+| Resolved path | `.../net8.0-desktopgl/bin/vocoder` (no `.exe`) | `~/nvg-trial/vocoder-probe/bin/vocoder` |
+| Missing args | Fail. Still running at 8 s. Killed. Log repeats `Modulator filename (required)? ! You must enter a value.` | Fail. Same spin. Killed at 8 s. |
+| Malformed `-z` | Pass. `VOCODER_STDIN_DONE` in 0.15 s. `usage:` then the process exits. | Pass. `VOCODER_STDIN_DONE` in 0.11 s. |
+
+Closing stdin is not enough for a missing-argument launch. `argc <= 1` enters `ask_user_filename`. `prompt_user` ignores the `fgets` return, so EOF is an empty line, `ask_user` prints "You must enter a value." and asks again. That loop is in the vocoder, not in the renderer or the video stack. A bad flag never enters the prompt. `usage()` exits. The stock plugin always passes `-b 1024` and three paths, so this spin is the no-argument case only.

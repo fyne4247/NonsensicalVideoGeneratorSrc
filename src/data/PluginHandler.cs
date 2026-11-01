@@ -87,7 +87,11 @@ namespace NonsensicalVideoGenerator
                     case CommandType.YtDlp:
                         return Global.useSystemYtDlp ? "yt-dlp" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "yt-dlp.exe");
                     case CommandType.Vocoder:
+#if DESKTOPGL
+                        return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "vocoder");
+#else
                         return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "vocoder.exe");
+#endif
                     default:
                         return customCommand;
                 }
@@ -144,6 +148,11 @@ namespace NonsensicalVideoGenerator
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
+#if DESKTOPGL
+                    // Native vocoder prompts on stdin when arguments are missing.
+                    // Close the pipe so it sees EOF instead of inheriting the app's stdin.
+                    RedirectStandardInput = true,
+#endif
                 };
                 Process process = new()
                 {
@@ -151,6 +160,9 @@ namespace NonsensicalVideoGenerator
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                 process.Start();
+#if DESKTOPGL
+                process.StandardInput.Close();
+#endif
                 string output = "";
                 string error = "";
                 process.OutputDataReceived += (sender, e) => {
@@ -258,7 +270,10 @@ namespace NonsensicalVideoGenerator
                     {
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
-                        RedirectStandardError = true
+                        RedirectStandardError = true,
+#if DESKTOPGL
+                        RedirectStandardInput = true,
+#endif
                     };
                     Process process = new Process
                     {
@@ -276,6 +291,9 @@ namespace NonsensicalVideoGenerator
                     };
                     ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                     process.Start();
+#if DESKTOPGL
+                    process.StandardInput.Close();
+#endif
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
                     process.WaitForExit();
