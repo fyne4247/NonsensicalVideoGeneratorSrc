@@ -34,22 +34,49 @@ command -v git >/dev/null 2>&1 || { echo "error: git not found" >&2; exit 1; }
 command -v "$CC" >/dev/null 2>&1 || { echo "error: C compiler '$CC' not found" >&2; exit 1; }
 command -v make >/dev/null 2>&1 || { echo "error: make not found" >&2; exit 1; }
 
-ARCH=$(uname -m)
+# config.guess uses uname. On an arm64 Mac, `clang -arch x86_64 -dumpmachine`
+# is x86_64 while uname stays arm64, so the target has to come from the compiler.
+host_arch=$(uname -m)
+case $host_arch in
+    aarch64) host_arch=arm64 ;;
+    amd64) host_arch=x86_64 ;;
+esac
+target_arch=$host_arch
+cc_triple=$("$CC" -dumpmachine 2>/dev/null || true)
+case $cc_triple in
+    x86_64*) target_arch=x86_64 ;;
+    aarch64*|arm64*) target_arch=arm64 ;;
+esac
+if [ -n "${NVG_MACH_ARCH:-}" ]; then
+    target_arch=$NVG_MACH_ARCH
+fi
+
+HOST_FLAG=""
+if [ "$target_arch" != "$host_arch" ]; then
+    [ -n "$cc_triple" ] || { echo "error: $CC -dumpmachine failed" >&2; exit 1; }
+    HOST_FLAG="--host=$cc_triple"
+    echo "==> cross compile x264 for $target_arch on $host_arch ($HOST_FLAG)"
+fi
+
 ASM_FLAG=""
 ASM_NOTE="asm=platform-assembler"
-if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ] || [ "$ARCH" = "i386" ]; then
+if [ "$target_arch" = "x86_64" ] || [ "$target_arch" = "i386" ]; then
     if ! command -v nasm >/dev/null 2>&1; then
-        echo "==> nasm not found on $ARCH; configuring --disable-asm"
+        echo "==> nasm not found; configuring --disable-asm for $target_arch"
         ASM_FLAG="--disable-asm"
-        ASM_NOTE="asm=disabled reason=nasm-missing-on-$ARCH. NVG-X264-SPEED.txt records one ultrafast 160x120 encode from this build. There is no asm build on this machine to compare."
+        ASM_NOTE="asm=disabled reason=nasm-missing-on-$target_arch"
+        if [ "$target_arch" != "$host_arch" ]; then
+            ASM_NOTE="$ASM_NOTE cross-from-$host_arch"
+        fi
+        ASM_NOTE="$ASM_NOTE. NVG-X264-SPEED.txt records one ultrafast 160x120 encode from this build. There is no asm build on this machine to compare."
     else
         ASM_NOTE="asm=nasm"
     fi
 else
-    ASM_NOTE="asm=platform-assembler reason=nasm-is-x86-only-on-$ARCH"
+    ASM_NOTE="asm=platform-assembler reason=nasm-is-x86-only-on-$target_arch"
 fi
 
-SIGNATURE="commit=$X264_COMMIT asm=$ASM_FLAG pic=yes static=yes cli=no"
+SIGNATURE="commit=$X264_COMMIT arch=$target_arch asm=$ASM_FLAG pic=yes static=yes cli=no"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
 if [ -f "$OUTPUT_DIR/NVG-X264.txt" ] && grep -F -q "signature=$SIGNATURE" "$OUTPUT_DIR/NVG-X264.txt"; then
@@ -93,7 +120,8 @@ echo "==> configuring x264 $X264_COMMIT prefix $OUTPUT_DIR"
         --disable-gpac \
         --disable-lsmash \
         --disable-opencl \
-        $ASM_FLAG
+        $ASM_FLAG \
+        $HOST_FLAG
 )
 
 echo "==> building x264 with -j$JOBS"
@@ -131,8 +159,17 @@ fi
     echo "source=$X264_REPO"
     echo "signature=$SIGNATURE"
     echo "$ASM_NOTE"
-    echo "configure=--enable-static --disable-shared --enable-pic --disable-cli $ASM_FLAG"
+    echo "configure=--enable-static --disable-shared --enable-pic --disable-cli $ASM_FLAG $HOST_FLAG"
+    echo "arch=$target_arch"
     echo "note=Static PIC library only. Linked into FFmpeg. The x264 program is not installed."
 } > "$OUTPUT_DIR/NVG-X264.txt"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    got=$(lipo -archs "$OUTPUT_DIR/lib/libx264.a" | tr -d '[:space:]')
+    if [ "$got" != "$target_arch" ]; then
+        echo "error: libx264.a is [$got], expected $target_arch" >&2
+        exit 1
+    fi
+fi
 
 echo "==> installed static x264 $X264_COMMIT into $OUTPUT_DIR"

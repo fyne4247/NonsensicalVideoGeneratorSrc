@@ -60,9 +60,37 @@ if ! command -v nasm >/dev/null 2>&1; then
     ASM_FLAG="--disable-x86asm"
 fi
 
+# Same rule as x264: uname stays arm64 when CC is `clang -arch x86_64`.
+host_arch=$(uname -m)
+case $host_arch in
+    aarch64) host_arch=arm64 ;;
+    amd64) host_arch=x86_64 ;;
+esac
+target_arch=$host_arch
+cc_triple=$("$CC" -dumpmachine 2>/dev/null || true)
+case $cc_triple in
+    x86_64*) target_arch=x86_64 ;;
+    aarch64*|arm64*) target_arch=arm64 ;;
+esac
+if [ -n "${NVG_MACH_ARCH:-}" ]; then
+    target_arch=$NVG_MACH_ARCH
+fi
+ARCH_FLAG=""
+if [ "$target_arch" != "$host_arch" ]; then
+    case $target_arch in
+        x86_64) ARCH_FLAG="--arch=x86_64" ;;
+        arm64) ARCH_FLAG="--arch=aarch64" ;;
+        *)
+            echo "error: unsupported FFmpeg target arch $target_arch" >&2
+            exit 1
+            ;;
+    esac
+    echo "==> cross compile FFmpeg for $target_arch on $host_arch ($ARCH_FLAG)"
+fi
+
 JOBS=${NVG_JOBS:-4}
 
-FFMPEG_SIGNATURE="tag=$FFMPEG_TAG x264=${X264_PIN:-none} frei0r=${FREI0R_PIN:-none} asm=$ASM_FLAG"
+FFMPEG_SIGNATURE="tag=$FFMPEG_TAG arch=$target_arch x264=${X264_PIN:-none} frei0r=${FREI0R_PIN:-none} asm=$ASM_FLAG"
 if [ -f "$OUTPUT_DIR/NVG-FFMPEG.txt" ] && grep -F -q "signature=$FFMPEG_SIGNATURE" "$OUTPUT_DIR/NVG-FFMPEG.txt"; then
     if [ -e "$OUTPUT_DIR/lib/libavcodec.61.dylib" ] || [ -e "$OUTPUT_DIR/lib/libavcodec.so.61" ]; then
         if [ -z "${NVG_X264_PREFIX:-}" ] || [ -x "$OUTPUT_DIR/bin/ffmpeg" ]; then
@@ -107,6 +135,18 @@ if [ -n "${NVG_FREI0R_PREFIX:-}" ]; then
     FREI0R_FLAGS="--enable-frei0r"
     EXTRA_CFLAGS="-I$NVG_FREI0R_PREFIX/include"
     CONFIGURE_NOTE="$CONFIGURE_NOTE --enable-frei0r"
+fi
+
+# configure reads --cc, not the CC environment variable. Without this it
+# runs `gcc`, which on an arm64 Mac links arm64 and rejects an x86_64 libx264.
+CC_FLAG="--cc=$CC"
+HOST_CC_FLAG=""
+EXTRA_LDFLAGS=""
+if [ -n "$ARCH_FLAG" ]; then
+    EXTRA_CFLAGS="${EXTRA_CFLAGS:+$EXTRA_CFLAGS }-arch $target_arch"
+    EXTRA_LDFLAGS="-arch $target_arch"
+    HOST_CC_FLAG="--host-cc=/usr/bin/cc"
+    CONFIGURE_NOTE="$CONFIGURE_NOTE $ARCH_FLAG --extra-cflags=-arch $target_arch --extra-ldflags=-arch $target_arch"
 fi
 
 pick_pkg_config() {
@@ -159,11 +199,15 @@ echo "==> configuring $FFMPEG_TAG ($COMMIT) prefix $OUTPUT_DIR"
         --enable-gpl \
         --enable-version3 \
         --enable-rpath \
+        "$CC_FLAG" \
+        $HOST_CC_FLAG \
         $PROGRAM_FLAGS \
         $X264_FLAGS \
         $FREI0R_FLAGS \
         $ASM_FLAG \
-        ${EXTRA_CFLAGS:+--extra-cflags="$EXTRA_CFLAGS"}
+        $ARCH_FLAG \
+        ${EXTRA_CFLAGS:+--extra-cflags="$EXTRA_CFLAGS"} \
+        ${EXTRA_LDFLAGS:+--extra-ldflags="$EXTRA_LDFLAGS"}
 )
 
 echo "==> building with -j$JOBS"
@@ -174,7 +218,8 @@ make -C "$SRC_DIR" install
     echo "tag=$FFMPEG_TAG"
     echo "commit=$COMMIT"
     echo "license=GPL-3.0-or-later"
-    echo "configure=$CONFIGURE_NOTE $ASM_FLAG"
+    echo "configure=$CONFIGURE_NOTE $ASM_FLAG $ARCH_FLAG"
+    echo "arch=$target_arch"
     echo "source=$FFMPEG_REPO"
     echo "signature=$FFMPEG_SIGNATURE"
     if [ -n "${NVG_X264_PREFIX:-}" ]; then
@@ -212,6 +257,19 @@ if [ -f "$SRC_DIR/COPYING.GPLv3" ]; then
 fi
 if [ -f "$SRC_DIR/COPYING.LGPLv2.1" ]; then
     cp "$SRC_DIR/COPYING.LGPLv2.1" "$OUTPUT_DIR/LICENSE.LGPLv2.1"
+fi
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    if [ -x "$OUTPUT_DIR/bin/ffmpeg" ]; then
+        check_bin="$OUTPUT_DIR/bin/ffmpeg"
+    else
+        check_bin="$OUTPUT_DIR/lib/libavcodec.61.dylib"
+    fi
+    got=$(lipo -archs "$check_bin" | tr -d '[:space:]')
+    if [ "$got" != "$target_arch" ]; then
+        echo "error: $check_bin is [$got], expected $target_arch" >&2
+        exit 1
+    fi
 fi
 
 echo "==> installed FFmpeg $FFMPEG_TAG into $OUTPUT_DIR"

@@ -3,8 +3,9 @@
 #
 # Usage: build-macos-installer.sh <osx-arm64|osx-x64> <outdir>
 #
-# osx-arm64 is the required build. osx-x64 is best effort (on an arm64 Mac
-# the FFmpeg libraries are compiled with clang -arch x86_64).
+# osx-arm64 is the native build. osx-x64 on an arm64 Mac cross-compiles every
+# native dependency with clang -arch x86_64 and publishes with the x64 SDK
+# under Rosetta (~/.dotnet-nvg-x64). The x64 app contains no arm64 Mach-O.
 # No sudo, no Homebrew, no notarisation, no upload.
 
 set -eu
@@ -49,6 +50,11 @@ mkdir -p -- "$OUTDIR"
 OUTDIR=$(CDPATH= cd -- "$OUTDIR" && pwd)
 VERSION=$(nvg_version)
 [ -n "$VERSION" ] || nvg_die "could not read Version from the csproj"
+PUBLISH_PREFIX=""
+if [ -z "${DOTNET:-}" ] && [ "$RID" = "osx-x64" ] && [ "$HOST" = "arm64" ]; then
+    DOTNET=$HOME/.dotnet-nvg-x64/dotnet
+    PUBLISH_PREFIX="arch -x86_64"
+fi
 DOTNET=${DOTNET:-$HOME/.dotnet-nvg/dotnet}
 [ -x "$DOTNET" ] || nvg_die "dotnet not found at $DOTNET (user-local SDK, no brew)"
 
@@ -62,6 +68,8 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+nvg_require_public_locales
 
 printf '==> DesktopGL content\n'
 env -u DOTNET /bin/sh "$ROOT/tools/build-content-desktopgl.sh"
@@ -77,7 +85,8 @@ export DOTNET_NOLOGO=1
 
 PUBLISH=$WORK/publish
 printf '==> publish %s\n' "$RID"
-"$DOTNET" publish "$ROOT/NonsensicalVideoGenerator.csproj" \
+# shellcheck disable=SC2086
+$PUBLISH_PREFIX "$DOTNET" publish "$ROOT/NonsensicalVideoGenerator.csproj" \
     -c Release \
     -r "$RID" \
     --self-contained true \
@@ -95,6 +104,7 @@ nvg_strip_publish_dir "$APP/Contents/MacOS"
 chmod 755 "$APP/Contents/MacOS/NonsensicalVideoGenerator"
 nvg_assert_no_steam "$APP"
 nvg_assert_no_removed_deps "$APP"
+nvg_require_packaged_locales "$APP/Contents/MacOS/locales"
 
 CC_BIN=/usr/bin/cc
 CXX_BIN=/usr/bin/c++
@@ -110,6 +120,7 @@ EOF
 exec /usr/bin/clang++ -arch x86_64 "$@"
 EOF
     chmod 755 "$CC_BIN" "$CXX_BIN"
+    export NVG_MACH_ARCH=x86_64
 fi
 
 DEPS=${NVG_DEPS_DIR:-$WORK/deps}
@@ -154,7 +165,7 @@ MAGICK_SHA=$(sed -n 's/^sha256=//p' "$TP/magick/NVG-MAGICK.txt")
 
 printf '==> vocoder\n'
 VOCODER_SCRATCH=$WORK/vocoder-src
-nvg_build_vocoder "$APP/Contents/MacOS/bin" "$VOCODER_SCRATCH"
+nvg_build_vocoder "$APP/Contents/MacOS/bin" "$VOCODER_SCRATCH" "$CC_BIN"
 rm -rf "$VOCODER_SCRATCH"
 chmod 755 "$APP/Contents/MacOS/bin/vocoder"
 VOCODER_COMMIT=$(sed -n 's/^VOCODER_COMMIT="\(.*\)".*/\1/p' "$ROOT/tools/vocoder/build-vocoder.sh")
@@ -225,6 +236,11 @@ if curl -fL --retry 3 --retry-delay 2 -o "$DENO_TMP" "$DENO_URL"; then
     fi
 fi
 
+if [ "$RID" = "osx-x64" ]; then
+    printf '==> keep x86_64 Mach-O only\n'
+    python3 "$ROOT/tools/package/macos/macho_arch.py" --arch x86_64 --thin "$APP"
+fi
+
 MAGICK_DESC=$(file -b "$APP/Contents/MacOS/bin/magick")
 MAGICK_RECORD="- Version: $MAGICK_VERSION_BUILT
 - Commit: $MAGICK_COMMIT
@@ -288,6 +304,14 @@ codesign --force --deep -s - "$APP"
 codesign -v --deep "$APP"
 nvg_assert_no_steam "$APP"
 nvg_assert_no_removed_deps "$APP"
+if [ "$RID" = "osx-x64" ] && [ "$HOST" = "arm64" ]; then
+    arch -x86_64 "$APP/Contents/MacOS/bin/ffmpeg" -hide_banner -version >/dev/null \
+        || nvg_die "ffmpeg did not run under Rosetta"
+    arch -x86_64 "$APP/Contents/MacOS/bin/ffprobe" -hide_banner -version >/dev/null \
+        || nvg_die "ffprobe did not run under Rosetta"
+    arch -x86_64 "$APP/Contents/MacOS/bin/magick" -version >/dev/null \
+        || nvg_die "magick did not run under Rosetta"
+fi
 PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/ffmpeg" -hide_banner -encoders | grep -E '(^|[[:space:]])libx264([[:space:]]|$)' >/dev/null \
     || nvg_die "signed ffmpeg does not list libx264"
 PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/magick" -size 16x16 "canvas:red" "$WORK/smoke/red.png"

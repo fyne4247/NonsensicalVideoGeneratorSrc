@@ -6,7 +6,7 @@ A finished package is a self-contained `.app` inside a `.dmg`. A person running 
 
 ## Build machine
 
-- An Apple Silicon Mac for `osx-arm64` (the required package). `osx-x64` is best effort.
+- An Apple Silicon Mac for `osx-arm64` and for `osx-x64`. The x64 package is a cross build and needs Rosetta 2 (`arch -x86_64 uname -m` prints `x86_64`). An Intel Mac can build `osx-x64` only.
 - User-local .NET 8 SDK at `~/.dotnet-nvg/dotnet`. On Apple Silicon, content also needs the osx-x64 SDK at `~/.dotnet-nvg-x64/dotnet`, because the content builder's native libraries are x86_64-only. `tools/build-content-desktopgl.sh` selects that SDK and runs it under Rosetta.
 - `git`, `cc`, `c++`, `make`, `python3`, and `curl` on the default macOS paths (`/usr/bin`).
 - `cmake`, used only to compile frei0r and libjpeg-turbo. The script uses `/usr/bin/cmake` or, if that is absent, `/opt/homebrew/bin/cmake`. It does not run `brew install`. Configure is pointed at the prefixes this script just built, and the library audit rejects any `/opt/homebrew` or `/usr/local` dependency.
@@ -25,7 +25,13 @@ From the repository root:
 sh tools/package/build-macos-installer.sh osx-arm64 "$HOME/nvg-macos-out"
 ```
 
-`osx-x64` uses the same command with that rid. On an arm64 Mac the script compiles the FFmpeg libraries with `clang -arch x86_64`. That rid is best effort.
+`osx-x64` uses the same command with that rid:
+
+```sh
+sh tools/package/build-macos-installer.sh osx-x64 "$HOME/nvg-macos-out"
+```
+
+On an arm64 Mac the script compiles x264, frei0r, FFmpeg, ImageMagick (zlib, libpng, libjpeg-turbo) and the vocoder with `clang -arch x86_64`. `uname` still says `arm64`, so the build scripts take the target from `clang -dumpmachine` and pass `--host` / `--arch=x86_64` / `CMAKE_OSX_ARCHITECTURES`. The publish step uses `~/.dotnet-nvg-x64/dotnet` under Rosetta. There is no nasm here, so x264 is `--disable-asm`, FFmpeg is `--disable-x86asm`, and libjpeg-turbo SIMD is off. Encodes still work; they are slower than an asm build. `yt-dlp_macos` is a universal binary and is thinned to x86_64. `lipo -archs` on every Mach-O in that app is `x86_64` only.
 
 The script:
 
@@ -112,4 +118,4 @@ mkdir -p "$HOME" "$NVG_DATA_DIR"
 
 The log should contain `Data root:` under that temporary directory and `FFmpeg Sdcb init OK`. Quit the app after that check. One GUI launch is enough. If the window needs a click the terminal session cannot give it, open the copied `.app` from Finder once and watch the same log.
 
-`osx-x64` is a separate DMG. The .NET apphost is not a universal binary.
+`osx-x64` is a separate DMG. The .NET apphost is not a universal binary. On Apple Silicon, run its tools and the app under Rosetta (`arch -x86_64`). A Mach-O in that app must not contain an arm64 slice.

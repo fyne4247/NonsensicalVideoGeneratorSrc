@@ -60,7 +60,29 @@ command -v "${MAKE:-make}" >/dev/null 2>&1 || { echo "error: make not found" >&2
 MAKE_BIN=$(command -v "${MAKE:-make}")
 CMAKE_BIN=$(pick_cmake)
 
-SIGNATURE="commit=$FREI0R_COMMIT tag=$FREI0R_TAG no-opencv no-cairo no-gavl"
+# uname stays arm64 when CC is `clang -arch x86_64`. CMake would otherwise
+# compile for the host. CMAKE_OSX_ARCHITECTURES is set only for that cross.
+host_arch=$(uname -m)
+case $host_arch in
+    aarch64) host_arch=arm64 ;;
+    amd64) host_arch=x86_64 ;;
+esac
+target_arch=$host_arch
+cc_triple=$("$CC" -dumpmachine 2>/dev/null || true)
+case $cc_triple in
+    x86_64*) target_arch=x86_64 ;;
+    aarch64*|arm64*) target_arch=arm64 ;;
+esac
+if [ -n "${NVG_MACH_ARCH:-}" ]; then
+    target_arch=$NVG_MACH_ARCH
+fi
+CMAKE_ARCH_ARGS=""
+if [ "$(uname -s)" = "Darwin" ] && [ "$target_arch" != "$host_arch" ]; then
+    CMAKE_ARCH_ARGS="-DCMAKE_OSX_ARCHITECTURES=$target_arch"
+    echo "==> cross compile frei0r for $target_arch on $host_arch"
+fi
+
+SIGNATURE="commit=$FREI0R_COMMIT tag=$FREI0R_TAG arch=$target_arch no-opencv no-cairo no-gavl"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
 if [ -f "$OUTPUT_DIR/NVG-FREI0R.txt" ] && grep -F -q "signature=$SIGNATURE" "$OUTPUT_DIR/NVG-FREI0R.txt"; then
@@ -108,7 +130,8 @@ echo "==> configuring frei0r $FREI0R_TAG ($FREI0R_COMMIT)"
     -DWITHOUT_OPENCV=ON \
     -DWITHOUT_GAVL=ON \
     -DCMAKE_DISABLE_FIND_PACKAGE_Cairo=ON \
-    -DCMAKE_DISABLE_FIND_PACKAGE_OpenCV=ON
+    -DCMAKE_DISABLE_FIND_PACKAGE_OpenCV=ON \
+    $CMAKE_ARCH_ARGS
 
 echo "==> building frei0r with -j$JOBS"
 "$CMAKE_BIN" --build "$BUILD_DIR" --parallel "$JOBS"
@@ -151,9 +174,23 @@ fi
     echo "license=$FREI0R_LICENSE"
     echo "source=$FREI0R_REPO"
     echo "signature=$SIGNATURE"
+    echo "arch=$target_arch"
     echo "plugins=$PLUGIN_DIR"
     echo "note=OpenCV, Cairo and gavl plugins are off. On macOS each .so is also copied to .dylib because FFmpeg dlopens the platform suffix. nervous.cpp is GPL-3.0-or-later; other plugins are GPL-2.0-or-later."
 } > "$OUTPUT_DIR/NVG-FREI0R.txt"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    if [ -f "$PLUGIN_DIR/nervous.so" ]; then
+        check_bin="$PLUGIN_DIR/nervous.so"
+    else
+        check_bin="$PLUGIN_DIR/nervous.dylib"
+    fi
+    got=$(lipo -archs "$check_bin" | tr -d '[:space:]')
+    if [ "$got" != "$target_arch" ]; then
+        echo "error: $check_bin is [$got], expected $target_arch" >&2
+        exit 1
+    fi
+fi
 
 echo "==> installed frei0r $FREI0R_TAG into $OUTPUT_DIR"
 find "$PLUGIN_DIR" -maxdepth 1 -name 'nervous.*' -o -name 'colorize.*'
