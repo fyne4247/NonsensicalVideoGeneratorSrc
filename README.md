@@ -72,6 +72,22 @@ DLL files available in `packages` are built beforehand to prevent .NET conflicts
 - [MonoGame.Extended2](https://github.com/NVGPartners/MonoGame.Extended2)
 - [MoonSharp](https://github.com/NVGPartners/moonsharp-PR-327)
 
+## macOS and Linux
+
+Native macOS and Linux builds use MonoGame DesktopGL. They do not use Steam, and the package scripts do not upload anything. The Windows instructions above are unchanged. The macOS and Linux packages include `ffmpeg`, `ffprobe` (libx264 and AAC), frei0r, and `magick`, so a render does not need those tools installed separately.
+
+- macOS: [MACOS_BUILD_INSTRUCTIONS.md](MACOS_BUILD_INSTRUCTIONS.md)
+- Linux: [LINUX_BUILD_INSTRUCTIONS.md](LINUX_BUILD_INSTRUCTIONS.md)
+
+`publish.sh` and `publish.bat` upload a build to Steam. They are not part of the macOS or Linux setup.
+
+Community packages keep writable data outside the app:
+
+- macOS: `~/Library/Application Support/NonsensicalVideoGenerator`
+- Linux: `~/.local/share/NonsensicalVideoGenerator`
+
+`NVG_DATA_DIR` overrides both. Removing the app does not remove that directory.
+
 ## Links
 <a href="https://store.steampowered.com/app/2516360/Nonsensical_Video_Generator/" target="_blank" alt="Nonsensical Video Generator Store Page" title="Steam Store Page">
   <img width="50%" src="https://i.imgur.com/Dc34oSC.png">

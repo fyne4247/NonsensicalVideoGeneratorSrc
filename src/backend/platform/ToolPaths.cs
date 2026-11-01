@@ -12,6 +12,9 @@ namespace NonsensicalVideoGenerator
     /// otherwise <c>.\bin\&lt;name&gt;.exe</c>. deno and vocoder stay bundled on Windows.
     /// Everywhere else the order is the bundled file under the resource root
     /// (<c>bin/&lt;name&gt;</c>, then <c>bin/&lt;name&gt;.exe</c>), then PATH.
+    /// On macOS, <see cref="MacWellKnownBins"/> is searched after PATH. A
+    /// Finder-launched app inherits launchd's PATH and would otherwise miss
+    /// a Homebrew ffmpeg in <c>/opt/homebrew/bin</c> or <c>/usr/local/bin</c>.
     /// </summary>
     public static class ToolPaths
     {
@@ -36,6 +39,14 @@ namespace NonsensicalVideoGenerator
 
         /// <summary>Test hook. "windows", "macos" or "linux". Null uses the host OS.</summary>
         public static string? PlatformOverride { get; set; }
+
+        /// <summary>
+        /// Directories searched on macOS after the bundled file and PATH.
+        /// Tests replace the array and restore <see cref="DefaultMacWellKnownBins"/>.
+        /// </summary>
+        public static readonly string[] DefaultMacWellKnownBins = { "/opt/homebrew/bin", "/usr/local/bin" };
+
+        public static string[] MacWellKnownBins { get; set; } = new[] { "/opt/homebrew/bin", "/usr/local/bin" };
 
         public static string Platform()
         {
@@ -97,7 +108,7 @@ namespace NonsensicalVideoGenerator
                     Ok = false,
                     Path = resolved,
                     Missing = missing,
-                    Message = "ffmpeg missing. Looked in bundled " + Path.Combine(ResourceRoot, "bin") + " then PATH.",
+                    Message = MissingFfmpegMessage(),
                 };
             }
             if (runner == null && FfmpegCache.TryGetValue(resolved, out ToolReport? cached))
@@ -188,7 +199,34 @@ namespace NonsensicalVideoGenerator
             string? onPath = FindOnPath(name);
             if (onPath != null)
                 return onPath;
+            if (Platform() == "macos")
+            {
+                string? wellKnown = FindInDirectories(name, MacWellKnownBins);
+                if (wellKnown != null)
+                    return wellKnown;
+            }
             return name;
+        }
+
+        static string MissingFfmpegMessage()
+        {
+            string looked = "ffmpeg missing. Looked in bundled " + Path.Combine(ResourceRoot, "bin") + " then PATH";
+            if (Platform() == "macos")
+                looked += " then " + string.Join(" and ", MacWellKnownBins);
+            return looked + ".";
+        }
+
+        static string? FindInDirectories(string name, IEnumerable<string> directories)
+        {
+            foreach (string dir in directories)
+            {
+                if (string.IsNullOrEmpty(dir))
+                    continue;
+                string candidate = Path.Combine(dir, name);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+            return null;
         }
 
         public static IReadOnlyList<string> BundledFileNames(string name)

@@ -48,6 +48,7 @@ public sealed class NvgTempEnv : IDisposable
         Environment.SetEnvironmentVariable("PATH", oldPath);
         ToolPaths.PlatformOverride = null;
         ToolPaths.ResourceRoot = "";
+        ToolPaths.MacWellKnownBins = new[] { "/opt/homebrew/bin", "/usr/local/bin" };
         try { Directory.Delete(Home, true); } catch { }
         try { Directory.Delete(Data, true); } catch { }
     }
@@ -185,6 +186,55 @@ public class ToolPathsTests
             ToolPaths.PlatformOverride = null;
             ToolPaths.ResourceRoot = "";
             Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public void MacFallbackDirectoriesAreSearchedAfterPath()
+    {
+        string root = Directory.CreateTempSubdirectory("nvg-mac-root-").FullName;
+        string pathDir = Directory.CreateTempSubdirectory("nvg-mac-path-").FullName;
+        string brewDir = Directory.CreateTempSubdirectory("nvg-mac-brew-").FullName;
+        string? savedPath = Environment.GetEnvironmentVariable("PATH");
+        string[] savedBins = ToolPaths.MacWellKnownBins;
+        try
+        {
+            AssertTempEnv();
+            Directory.CreateDirectory(Path.Combine(root, "bin"));
+            string fallback = Path.Combine(brewDir, "ffmpeg");
+            File.WriteAllText(fallback, "brew\n");
+            string onPath = Path.Combine(pathDir, "ffprobe");
+            File.WriteAllText(onPath, "path\n");
+            Environment.SetEnvironmentVariable("PATH", pathDir);
+            ToolPaths.ResourceRoot = root;
+            ToolPaths.PlatformOverride = "macos";
+            ToolPaths.MacWellKnownBins = new[] { brewDir, Path.Combine(brewDir, "absent") };
+
+            Assert.Equal(fallback, ToolPaths.Resolve("ffmpeg"));
+            Assert.True(ToolPaths.IsAvailable("ffmpeg"));
+            Assert.Equal(onPath, ToolPaths.Resolve("ffprobe"));
+
+            string bundled = Path.Combine(root, "bin", "ffmpeg");
+            File.WriteAllText(bundled, "bundled\n");
+            Assert.Equal(bundled, ToolPaths.Resolve("ffmpeg"));
+
+            string brewMagick = Path.Combine(brewDir, "magick");
+            File.WriteAllText(brewMagick, "brew-magick\n");
+            Assert.Equal(brewMagick, ToolPaths.Resolve("magick"));
+
+            ToolPaths.PlatformOverride = "linux";
+            Assert.Equal("magick", ToolPaths.Resolve("magick"));
+            Assert.False(ToolPaths.IsAvailable("magick"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", savedPath);
+            ToolPaths.PlatformOverride = null;
+            ToolPaths.ResourceRoot = "";
+            ToolPaths.MacWellKnownBins = savedBins;
+            Directory.Delete(root, true);
+            Directory.Delete(pathDir, true);
+            Directory.Delete(brewDir, true);
         }
     }
 
