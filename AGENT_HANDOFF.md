@@ -593,5 +593,5 @@ Acceptance: unit tests for the subType validation with both separators. A headle
 - Evidence (worker): osx-x64 SIGTERM exit 0 (r1 and r2), osx-x64 menu Quit exit 0 (r1), arm64 SIGTERM 0 (r1), linux-x64 SIGTERM 0 (r1). No libc++abi line and no new DiagnosticReports. NvgPlatform 18/18 and NvgMedia 10/10 on Mac and 750; DesktopGL build 0 errors on both.
 - Behaviour change: a clean signal exit is now 0, not 143.
 - Not verified: real Intel hardware; the Windows VM build (Opus runs it together with hard-9/hard-10, since the Program.cs change is inside #if). The osx-x64 DMG still has to be rebuilt from the integrated branch before it can be offered.
-- Main checkout: only the pre-existing untracked `AGENTS.override.md`; no worker writes.
+- Main checkout: clean, no worker writes. (The untracked `AGENTS.override.md` is in hard-8's own worktree, not committed.)
 - Worker closed.
