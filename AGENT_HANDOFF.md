@@ -526,3 +526,18 @@ Open items:
 2. Human/computer-use GUI pass. Sol has started on osx-arm64; Linux is next, then osx-x64.
 3. Windows interactive launch in the VM desktop.
 4. No notarisation (ad-hoc signed).
+
+## Triage — osx-x64 shutdown abort (Opus, 2026-11-01)
+Defect: the installed osx-x64 app, run under Rosetta on the arm64 Mac, exits -6 (SIGABRT) on SIGTERM with "libc++abi: terminating … recursive_mutex lock failed: Invalid argument". arm64 and linux-x64 exit 143 cleanly. Sol: on arm64, menu Quit closes the app with no crash report and codesign still passes.
+**Until this is resolved, the osx-x64 DMG must not be offered or called verified.**
+### flow-1101-0201-hard-8 (Grok 4.7, hard): narrow investigation + fix, or a documented limit
+Why hard: a native teardown race (likely OpenAL-soft/SDL/FFmpeg threads during .NET ProcessExit under Rosetta), which needs crash-report reading and careful shutdown ordering.
+Base: team branch HEAD (includes hard-7).
+Owns: `src/backend/Program.cs`, `src/backend/UserInterface.cs` (shutdown path only), `src/backend/platform/**` (new files allowed, e.g. `ShutdownSignals.cs`), `tests/NvgPlatform.Tests/**`, and the osx-x64 section of `MACOS_BUILD_INSTRUCTIONS.md` (only if it ends as a documented limit).
+Must not touch: `tools/**`, other `src/**`, csproj, `AGENT_HANDOFF.md`, the main checkout. Delete nothing; write new outputs to new dirs.
+**GUI rule: no app launch on this Mac (any arch) until Opus messages "go". The owner is doing a foreground test.** Code reading, crash logs already on disk (`~/Library/Logs/DiagnosticReports`), and builds are fine before then.
+Steps:
+1. Find the aborting thread/library from existing diagnostic reports or, after "go", one reproduction. Also test whether a normal quit (menu Quit / window close via AX) aborts, or only SIGTERM.
+2. If SIGTERM is the only trigger: handle SIGTERM/SIGINT with `PosixSignalRegistration` on DesktopGL → request `game.Exit()` and let the normal shutdown run (cancel the signal's default termination). Check that arm64 and Linux still exit cleanly. Windows is unchanged.
+3. If a normal quit also aborts on x64, find the teardown order (VideoPlayer/OpenAL/SDL dispose) and fix it narrowly. If it's a Rosetta-only libc++ issue that can't be fixed in our code, write a concrete documented limit with the evidence instead.
+Acceptance: rebuild the osx-x64 app only (new dir), then run three checks after "go": SIGTERM exit, menu Quit exit, and crash-report presence. Also arm64 + linux-x64 SIGTERM still clean, `dotnet test` both projects on Mac + 750, and DesktopGL build 0 errors. Report the exit codes and the crash-report excerpt. Opus runs the Windows VM build afterwards if shared code changes.
