@@ -677,6 +677,7 @@ namespace NonsensicalVideoGenerator
 #if DESKTOPGL
             if (Global.exiting)
                 PlatformFileDialog.CancelActive();
+            LibraryPage.PumpBackground();
 #endif
             if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
             {

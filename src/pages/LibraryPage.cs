@@ -679,8 +679,7 @@ namespace NonsensicalVideoGenerator
                 PumpThumbnailUploads(uploadDevice);
             if (Global.exiting)
                 PlatformFileDialog.CancelActive();
-            PumpChooser();
-            PumpImport();
+            PumpBackground();
 #endif
             if(actionController.Update(gameTime, handleInput))
                 return true;
@@ -1200,7 +1199,19 @@ namespace NonsensicalVideoGenerator
                                                 string openPath = file.Path;
                                                 if (file.Type != null && file.Type.RootType == LibraryRootType.Video)
                                                     openPath = LibraryData.GetLocalizedDefaultOutro(file.Path);
-                                                if (!MediaGuard.CanOpen(openPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blocked))
+                                                // DesktopGL plays a library video from PrepareLibraryPreview's worker,
+                                                // which already probes. This thread only rejects a missing or empty file.
+                                                bool previewOnWorker = false;
+#if DESKTOPGL
+                                                previewOnWorker = file.Type != null
+                                                    && file.Type.RootType == LibraryRootType.Video
+                                                    && SaveData.saveValues["UseExternalVideoPlayer"] == "false";
+#endif
+                                                string blocked;
+                                                bool rejected = previewOnWorker
+                                                    ? !MediaGuard.HasContent(openPath, out blocked)
+                                                    : !MediaGuard.CanOpen(openPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out blocked);
+                                                if (rejected)
                                                 {
                                                     ConsoleOutput.WriteLine(blocked, Color.Red);
                                                     Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
@@ -1720,6 +1731,25 @@ namespace NonsensicalVideoGenerator
             return false;
         }
 #if DESKTOPGL
+        /// <summary>
+        /// Pagination updates only the drawn page. The chooser returns immediately,
+        /// so the user can leave Library while it is open. FramePlayer.Update calls
+        /// this every frame. The import type is the one captured at the click.
+        /// A later category does not retarget it. Global.exiting drops the pick.
+        /// </summary>
+        public static void PumpBackground()
+        {
+            for (int i = 0; i < Pagination.Pages.Length; i++)
+            {
+                if (Pagination.Pages[i] is LibraryPage page)
+                {
+                    page.PumpChooser();
+                    page.PumpImport();
+                    return;
+                }
+            }
+        }
+
         void PumpChooser()
         {
             PlatformFileDialog.FileChooser? chooser = pendingChooser;

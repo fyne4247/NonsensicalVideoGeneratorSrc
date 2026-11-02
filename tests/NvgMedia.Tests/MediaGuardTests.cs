@@ -90,6 +90,136 @@ public class MediaGuardTests
         Assert.Equal(before, new FileInfo(good).Length);
     }
 
+    [Fact]
+    public void HasContent_Rejects_Missing_And_Empty_Without_A_Probe()
+    {
+        string dir = Path.Combine(env.Data, "guard-present");
+        Directory.CreateDirectory(dir);
+        string missing = Path.Combine(dir, "missing.mp4");
+        Assert.False(MediaGuard.HasContent(missing, out string missingWhy));
+        Assert.Contains("missing", missingWhy, StringComparison.OrdinalIgnoreCase);
+
+        string empty = Path.Combine(dir, "empty.mp4");
+        File.WriteAllBytes(empty, Array.Empty<byte>());
+        Assert.False(MediaGuard.HasContent(empty, out string emptyWhy));
+        Assert.Contains("empty", emptyWhy, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, new FileInfo(empty).Length);
+
+        string bytes = Path.Combine(dir, "bytes.mp4");
+        File.WriteAllBytes(bytes, new byte[] { 9, 8, 7, 6 });
+        Assert.True(MediaGuard.HasContent(bytes, out string ok));
+        Assert.Equal("", ok);
+        Assert.Equal(4, new FileInfo(bytes).Length);
+    }
+
+    [PosixFact]
+    public void Stub_Probe_Stdout_Is_Accepted()
+    {
+        string dir = Path.Combine(env.Data, "guard-stub-ok");
+        Directory.CreateDirectory(dir);
+        string stub = Path.Combine(dir, "ffprobe-ok.sh");
+        File.WriteAllText(stub, "#!/bin/sh\nprintf '%s\\n' 'mov,mp4'\n");
+        Chmod(stub);
+        string media = Path.Combine(dir, "clip.mp4");
+        File.WriteAllBytes(media, new byte[] { 1, 2, 3, 4 });
+        MediaGuard.Verdict verdict = MediaGuard.Inspect(media, stub);
+        Assert.True(verdict.Ok, verdict.Message);
+        Assert.Equal(4, new FileInfo(media).Length);
+    }
+
+    [PosixFact(Timeout = 20000)]
+    public async Task Hung_Probe_Is_Killed_Within_The_Timeout()
+    {
+        string dir = Path.Combine(env.Data, "guard-stub-hang");
+        Directory.CreateDirectory(dir);
+        string stub = Path.Combine(dir, "ffprobe-hang.sh");
+        File.WriteAllText(stub, "#!/bin/sh\n/bin/sleep 137\n");
+        Chmod(stub);
+        string media = Path.Combine(dir, "clip.mp4");
+        byte[] before = new byte[] { 4, 5, 6, 7, 8 };
+        File.WriteAllBytes(media, before);
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            MediaGuard.Verdict verdict = await Task.Run(() => MediaGuard.Inspect(media, stub));
+            watch.Stop();
+            Assert.False(verdict.Ok);
+            Assert.Equal(MediaGuard.UnprobeableCode, verdict.Code);
+            Assert.Contains("timed out", verdict.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.InRange(watch.Elapsed.TotalSeconds, 4, 15);
+            Assert.Equal(before, File.ReadAllBytes(media));
+            Assert.False(ProbeStillRunning(stub), "hung ffprobe stub was still running");
+        }
+        finally
+        {
+            KillMatching(stub);
+            KillMatching("/bin/sleep 137");
+        }
+    }
+
+    static void Chmod(string path)
+    {
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = "/bin/chmod",
+            ArgumentList = { "+x", path },
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using Process process = Process.Start(psi) ?? throw new InvalidOperationException("chmod");
+        process.WaitForExit(5000);
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(process.StandardError.ReadToEnd());
+    }
+
+    static bool ProbeStillRunning(string token)
+    {
+        return MatchingPids(token).Count > 0;
+    }
+
+    static void KillMatching(string token)
+    {
+        foreach (int pid in MatchingPids(token))
+        {
+            try
+            {
+                Process.GetProcessById(pid).Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    static List<int> MatchingPids(string token)
+    {
+        var pids = new List<int>();
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = "/usr/bin/pgrep",
+            ArgumentList = { "-fl", token },
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true
+        };
+        using Process process = Process.Start(psi) ?? throw new InvalidOperationException("pgrep");
+        string output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit(2000);
+        foreach (string line in output.Split('\n'))
+        {
+            if (line.Contains("pgrep", StringComparison.Ordinal))
+                continue;
+            string trimmed = line.Trim();
+            if (trimmed.Length == 0)
+                continue;
+            string pidText = trimmed.Split(' ', 2)[0];
+            if (int.TryParse(pidText, out int pid) && pid > 0)
+                pids.Add(pid);
+        }
+        return pids;
+    }
+
     static string WriteTruncated(string dir)
     {
         string? ffmpeg = FindTool("ffmpeg");

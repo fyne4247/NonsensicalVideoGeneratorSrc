@@ -143,9 +143,9 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
                                             Global.videoPlaying = true;
                                             UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                            FramePlayer.canPlayBgMusic = false;
                                         }
                                     }
-                                    FramePlayer.canPlayBgMusic = false;
                                     if (Global.videoPlaying)
                                         Global.generator.progressText = L.T(0, "Video:StatusPlay");
                                     if (ScreenManager.GetScreen<VideoScreen>("Video") == null
@@ -824,9 +824,9 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
                                             Global.videoPlaying = true;
                                             UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                            FramePlayer.canPlayBgMusic = false;
                                         }
                                     }
-                                    FramePlayer.canPlayBgMusic = false;
                                     if (Global.videoPlaying && (ScreenManager.GetScreen<VideoScreen>("Video") == null
                                         || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden))
                                     {
@@ -1207,9 +1207,9 @@ namespace NonsensicalVideoGenerator
                                 UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
                                 Global.videoPlaying = true;
                                 UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                FramePlayer.canPlayBgMusic = false;
                             }
                         }
-                        FramePlayer.canPlayBgMusic = false;
                         if (Global.videoPlaying && (ScreenManager.GetScreen<VideoScreen>("Video") == null
                             || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden))
                         {
@@ -1924,53 +1924,15 @@ namespace NonsensicalVideoGenerator
         static bool HasPositiveDuration(string path)
         {
             string ffprobe = ToolPaths.Ffprobe(Global.useSystemFFprobe);
-            var psi = new ProcessStartInfo
-            {
-                FileName = ffprobe,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("-v");
-            psi.ArgumentList.Add("error");
-            psi.ArgumentList.Add("-show_entries");
-            psi.ArgumentList.Add("format=duration");
-            psi.ArgumentList.Add("-of");
-            psi.ArgumentList.Add("csv=p=0");
-            psi.ArgumentList.Add(path);
-            try
-            {
-                using Process process = new Process();
-                process.StartInfo = psi;
-                process.ErrorDataReceived += (_, _) => { };
-                if (!process.Start())
-                    return false;
-                process.BeginErrorReadLine();
-                string stdout = process.StandardOutput.ReadToEnd();
-                if (!process.WaitForExit(5000))
-                {
-                    try
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                    catch
-                    {
-                    }
-                    return false;
-                }
-                string line = stdout.Trim();
-                int cut = line.IndexOfAny(new[] { '\r', '\n' });
-                if (cut >= 0)
-                    line = line.Substring(0, cut).Trim();
-                if (!float.TryParse(line, NumberStyles.Float, CultureInfo.InvariantCulture, out float duration))
-                    return false;
-                return duration > 0f;
-            }
-            catch
-            {
+            if (!MediaGuard.TryReadProbe(ffprobe, "format=duration", path, out string stdout, out _))
                 return false;
-            }
+            string line = stdout.Trim();
+            int cut = line.IndexOfAny(new[] { '\r', '\n' });
+            if (cut >= 0)
+                line = line.Substring(0, cut).Trim();
+            if (!float.TryParse(line, NumberStyles.Float, CultureInfo.InvariantCulture, out float duration))
+                return false;
+            return duration > 0f;
         }
 
         public void CleanUp()
