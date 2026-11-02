@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
 using System.ComponentModel;
-using System.Net;
 using System.Diagnostics;
 using System.Linq;
 using System.Globalization;
+using System.Threading;
 
 namespace NonsensicalVideoGenerator
 {
@@ -222,23 +222,23 @@ namespace NonsensicalVideoGenerator
             // sort by date
             foreach (string file in Directory.GetFiles(path).OrderByDescending(f => new FileInfo(f).CreationTime))
             {
-                foreach (string filetype in libraryFileTypes[type])
-                {
-                    if (file.EndsWith(filetype))
-                    {
-                        LibraryFile libFile = new LibraryFile(Path.GetFileNameWithoutExtension(file), file, type);
-                        // If path is disabled, disable it.
-                        // SaveData.saveValues["DisabledMedia"] is a string-stored json object
-                        // that contains a list of disabled media paths.
-                        if (DisabledMedia.Contains(file))
-                            libFile.Enabled = false;
-                        libraryFiles.Add(libFile);
-                        break;
-                    }
-                }
+                // Partials end in .nvgpart or sit in a .nvgpart-* directory, so they are not listed.
+                if (!AtomicDownload.ListedByLibraryScan(file, libraryFileTypes[type]))
+                    continue;
+                LibraryFile libFile = new LibraryFile(Path.GetFileNameWithoutExtension(file), file, type);
+                // If path is disabled, disable it.
+                // SaveData.saveValues["DisabledMedia"] is a string-stored json object
+                // that contains a list of disabled media paths.
+                if (DisabledMedia.Contains(file))
+                    libFile.Enabled = false;
+                libraryFiles.Add(libFile);
             }
             foreach (string dir in Directory.GetDirectories(path))
+            {
+                if (AtomicDownload.IsPartialPath(dir))
+                    continue;
                 LoadRecursive(dir, type);
+            }
             if(!Global.generator.generatorActive)
                 SequentialName();
         }
@@ -246,6 +246,9 @@ namespace NonsensicalVideoGenerator
         {
             try
             {
+                // A killed download leaves a partial. Remove those before the scan.
+                // Live downloads are marked and are left alone. 0-byte finals stay.
+                AtomicDownload.SweepPartials(NvgPaths.Native(libraryRootPath));
                 if(!Global.generator.generatorActive)
                     Global.videoTitle = "Render1";
                 libraryFiles.Clear();
@@ -450,9 +453,11 @@ namespace NonsensicalVideoGenerator
         public static string PickRandom(LibraryType type, Random rnd)
         {
             // Pick a random file from the library.
+            // 0-byte files and download partials are not clips.
+            // When every file is rejected, this returns "" and GetRandomLibraryFile returns "".
             List<LibraryFile> files = libraryFiles.FindAll(x =>
             {
-                if (x.Type == type && x.Path != null && File.Exists(x.Path) && x.Enabled)
+                if (x.Type == type && x.Enabled && AtomicDownload.IsSelectable(x.Path))
                 {
                     int max = int.Parse(SaveData.saveValues["MaxUniqueClips"], CultureInfo.InvariantCulture);
                     // Check if it's already been called.
@@ -577,6 +582,16 @@ namespace NonsensicalVideoGenerator
         }
         // Download thread
         private static BackgroundWorker? downloadWorker;
+
+        static bool LibraryDownloadShouldStop()
+        {
+            return Global.exiting;
+        }
+
+        static bool ProbeDownloadedMedia(string mediaPath)
+        {
+            return AtomicDownload.ProbeWithFfprobe(ToolPaths.Ffprobe(Global.useSystemFFprobe), mediaPath);
+        }
         public static List<string> downloadUrls = new();
         private static LibraryType? downloadType;
         private static List<bool> youtubes = new();
@@ -597,6 +612,7 @@ namespace NonsensicalVideoGenerator
                 // Remove parameters, domain, navigation, etc. from URL for filename and extension.
                 string filename = Path.GetFileName(downloadUrl).Replace(" ", "_").Split('?')[0];
                 string path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[downloadType], filename));
+                var saved = new List<string>();
                 try
                 {
                     string? direxist = Path.GetDirectoryName(path);
@@ -605,53 +621,80 @@ namespace NonsensicalVideoGenerator
                         if(!Directory.Exists(direxist))
                             Directory.CreateDirectory(direxist);
                     }
-                    if(File.Exists(path))
-                    {
-                        NvgTrace.FileOp("File.Delete", path);
-                        File.Delete(path); // Delete the file if it already exists.
-                    }
+                    // Do not delete an existing file first. A failed download must leave it byte-identical.
+                    // A 0-byte final is absent and is replaced only after validation.
                     if(!youtube)
                     {
-                        using (WebClient client = new WebClient())
+                        AtomicDownload.DownloadResult result = AtomicDownload.Fetch(new AtomicDownload.Request
                         {
-                            client.DownloadFile(downloadUrl, path);
+                            Url = downloadUrl,
+                            FinalPath = path,
+                            KeepValidExisting = false,
+                            ShouldStop = LibraryDownloadShouldStop,
+                            Probe = ProbeDownloadedMedia,
+                        });
+                        if (!result.Published)
+                        {
+                            ConsoleOutput.WriteLine("Failed to download clip: " + result.Detail, Color.Red);
+                            LibraryPage.Done(false);
+                            continue;
                         }
+                        saved.Add(result.FinalPath);
                     }
                     else
                     {
-                        path = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[downloadType], "%(title)s.%(ext)s"));
-                        string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
-                        string deno = ToolPaths.Deno(Global.useSystemYtDlp);
-                        bool sound = downloadType.RootType == LibraryRootType.Audio;
-                        // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
-                        /*
-                        WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
-                                Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
-                                To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
-                                If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
-                        */
-                        // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
-                        ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " -o \"" + path + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + downloadUrl);
-                        startInfo.UseShellExecute = false;
-                        startInfo.RedirectStandardOutput = true;
-                        startInfo.RedirectStandardError = true;
-                        Process process = new Process();
-                        process.StartInfo = startInfo;
-                        process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+                        string destDir = Path.GetDirectoryName(path) ?? ".";
+                        AtomicDownload.SweepPartials(destDir);
+                        string staging = AtomicDownload.CreateStaging(destDir);
+                        try
                         {
-                            if(e.Data != null)
-                                ConsoleOutput.WriteLine(e.Data, Color.Transparent);
-                        };
-                        process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
+                            string template = AtomicDownload.StagingTemplate(staging);
+                            string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
+                            string deno = ToolPaths.Deno(Global.useSystemYtDlp);
+                            bool sound = downloadType.RootType == LibraryRootType.Audio;
+                            // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
+                            /*
+                            WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
+                                    Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
+                                    To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
+                                    If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
+                            */
+                            // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
+                            // Output goes to a staging directory the library scan skips, then moves after probe.
+                            ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " " + AtomicDownload.SocketTimeoutArgument() + " -o \"" + template + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + downloadUrl);
+                            startInfo.UseShellExecute = false;
+                            startInfo.RedirectStandardOutput = true;
+                            startInfo.RedirectStandardError = true;
+                            Process process = new Process();
+                            process.StartInfo = startInfo;
+                            process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+                            {
+                                if(e.Data != null)
+                                    ConsoleOutput.WriteLine(e.Data, Color.Transparent);
+                            };
+                            process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
+                            {
+                                if(e.Data != null)
+                                    ConsoleOutput.WriteLine(e.Data, Color.Red);
+                            };
+                            ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
+                            ProcessTree.StartTracked(process);
+                            process.BeginOutputReadLine();
+                            process.BeginErrorReadLine();
+                            AtomicDownload.DownloadResult result = AtomicDownload.FinishStaged(
+                                process, staging, destDir, LibraryDownloadShouldStop, ProbeDownloadedMedia, null, CancellationToken.None);
+                            if (!result.Published)
+                            {
+                                ConsoleOutput.WriteLine("Failed to download clip: " + result.Detail, Color.Red);
+                                LibraryPage.Done(false);
+                                continue;
+                            }
+                            saved.AddRange(result.PublishedPaths);
+                        }
+                        finally
                         {
-                            if(e.Data != null)
-                                ConsoleOutput.WriteLine(e.Data, Color.Red);
-                        };
-                        ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                        ProcessTree.StartTracked(process);
-                        process.BeginOutputReadLine();
-                        process.BeginErrorReadLine();
-                        process.WaitForExit();
+                            AtomicDownload.DeleteStaging(staging);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -660,13 +703,14 @@ namespace NonsensicalVideoGenerator
                     LibraryPage.Done(false);
                     continue;
                 }
-                // Add it to the library.
-                LibraryFile file = new(Path.GetFileNameWithoutExtension(path), path, downloadType);
-                // Run callback
-                LibraryPage.Done(true);
-                libraryFiles.Add(file);
-                Global.justCompletedRender = true; // Refresh the library.
-                ConsoleOutput.WriteLine("Downloaded clip to library: " + path, Color.Green);
+                foreach (string savedPath in saved)
+                {
+                    LibraryFile file = new(Path.GetFileNameWithoutExtension(savedPath), savedPath, downloadType);
+                    LibraryPage.Done(true);
+                    libraryFiles.Add(file);
+                    Global.justCompletedRender = true; // Refresh the library.
+                    ConsoleOutput.WriteLine("Downloaded clip to library: " + savedPath, Color.Green);
+                }
             }
             downloadUrls.Clear();
             youtubes.Clear();
