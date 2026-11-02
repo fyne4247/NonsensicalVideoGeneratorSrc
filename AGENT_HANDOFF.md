@@ -852,3 +852,26 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 - Remaining unexercised candidates: LibraryPage shift-delete glyph (button2) replayed against a stale `libraryFileCache` index after a long freeze; a same-name reimport with different bytes (logs "Deleting existing library file", absent); download overwrite; Organize onto a different existing file (now logs); out-of-process deletion (Finder via Reveal).
 - Side finding (UI, not fixed): the Max Unique Clips text box takes focus but Up/Down doesn't change it under synthetic input (Overlay layer handles input first). The owner did change it in their session, so real input may work. Low priority.
 - **Plan:** ship `NVG_TRACE` (off by default) in the next owner test build, turn it on in the owner launcher, and run a materials/ watcher beside the app. If the wipe recurs, the trace names the call. Still blocking for the main merge: Sol decides whether the hardening is enough or the issue stays open.
+
+## Opus review: trial merge of hard-13, hard-14, hard-15 (library/preview/audio round)
+
+Trial branch `flow-test/flow-1101-0201-library` at `ae96bde` (base team 5960c5f). Merge order hard-13, hard-14, hard-15: **no conflicts**. Plus one trial-only commit, `ae96bde`, adding `<Compile Remove="tools/**" />` to `NonsensicalVideoGenerator.csproj`. **Sol must make the same change on the team branch**; without it the app build fails (hard-15's `tools/music/MeasureVorbisPeak`).
+
+| Worker | Branch | Final commit | Status |
+|---|---|---|---|
+| hard-13 (library wipe hardening + NVG_TRACE) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-13` | `8279f53` | approve (root cause not found; see its section) |
+| hard-14 (preview + picker) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-14` | `020c163` | approve |
+| hard-15 (libmp3lame + menu-music headroom) | `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-15` | `b083cf8` | approve, needs the csproj exclude |
+
+Tests at ae96bde:
+- Mac (git worktree, temp HOME/NVG_DATA_DIR): NvgPlatform 63/63, NvgMedia 19/19. DesktopGL Release build 0 errors / 3 warnings.
+- Linux 750 (`~/nvg-lib-trial`, git-archive copy, not a git checkout): NvgPlatform 63/63; NvgMedia 18/19; DesktopGL build 0 errors.
+- Windows VM (`C:\Users\Quickemu\nvgtest-lib`, git-archive copy): WindowsDX build 0 errors / 7 warnings; NvgPlatform 58 pass / 5 skip / 0 fail; NvgMedia 15 pass / 3 skip / 1 fail. VM shut down; ollama inactive.
+- The single NvgMedia failure on Linux and Windows is `MenuMusicHeadroomTests.DesktopGlPlayedMusicDoesNotClipBeforeGain`, failing with "original music files changed" plus a diff listing every content file as new. The test proves the originals are unchanged with git, so it fails in any tree that isn't a git checkout. Test-environment defect, not a product one. **Fix (Sol, small):** compare against pinned sha256 values of the originals, or skip that assertion when not inside a git work tree. The played-path peak measurement passed on the Mac.
+- New Windows warnings (5× CS0649): `LibraryPage.PendingThumbnail` fields are only assigned on DesktopGL. Harmless; wrap the struct in `#if DESKTOPGL` (Sol, optional).
+
+Open / risks:
+- The library-wipe root cause is unknown. Hardening is in, and the next owner build should run with `NVG_TRACE=1` plus a materials/ watcher.
+- The DesktopGL preview transcodes each un-generated B-frame clip once into `cache/play` (disk use grows with the library; ClearCache empties `cache/play` at startup).
+- Menu music is 4.7–9.5 dB quieter on theme1/2/4 and halloween; the owner is judging in Audacity (`/tmp/nvg-music-compare`).
+- Next: after Sol integrates, rebuild the arm64/x64/linux packages (one worker), then an owner retest with the trace launcher.
