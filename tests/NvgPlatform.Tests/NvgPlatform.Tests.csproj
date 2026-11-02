@@ -28,6 +28,7 @@
     <Compile Include="..\..\src\backend\platform\NvgPaths.cs" Link="platform\NvgPaths.cs" />
     <Compile Include="..\..\src\backend\platform\PlatformClipboard.cs" Link="platform\PlatformClipboard.cs" />
     <Compile Include="..\..\src\backend\platform\PlatformFileDialog.cs" Link="platform\PlatformFileDialog.cs" />
+    <Compile Include="..\..\src\backend\platform\ProcessTree.cs" Link="platform\ProcessTree.cs" />
     <Compile Include="..\..\src\backend\platform\PlatformShell.cs" Link="platform\PlatformShell.cs" />
     <Compile Include="..\..\src\backend\platform\PlatformTts.cs" Link="platform\PlatformTts.cs" />
     <Compile Include="..\..\src\backend\platform\ShutdownSignals.cs" Link="platform\ShutdownSignals.cs" />

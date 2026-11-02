@@ -43,6 +43,15 @@ namespace NonsensicalVideoGenerator
         private string tooltip = "";
         private bool registered = false;
         private static bool downloading = false;
+#if DESKTOPGL
+        private PlatformFileDialog.FileChooser? pendingChooser;
+        private LibraryType? pendingImportType;
+        private readonly object importGate = new();
+        private bool importCopyRunning;
+        private bool importFinished;
+        private int importOk;
+        private int importFail;
+#endif
         private static KeyboardState oldKeyboardState;
         private static KeyboardState newKeyboardState;
         private readonly InteractableController actionController = new();
@@ -668,6 +677,10 @@ namespace NonsensicalVideoGenerator
             GraphicsDevice? uploadDevice = UserInterface.instance?.GraphicsDevice;
             if (uploadDevice != null)
                 PumpThumbnailUploads(uploadDevice);
+            if (Global.exiting)
+                PlatformFileDialog.CancelActive();
+            PumpChooser();
+            PumpImport();
 #endif
             if(actionController.Update(gameTime, handleInput))
                 return true;
@@ -685,7 +698,11 @@ namespace NonsensicalVideoGenerator
                 // Reimport all and demand change
                 demandChange = true;
             }
+#if DESKTOPGL
+            if(demandChange && !importCopyRunning)
+#else
             if(demandChange)
+#endif
             {
                 deleteConfirmPos = -1;
                 // Delete existing rects
@@ -715,6 +732,10 @@ namespace NonsensicalVideoGenerator
                 changed = true;
                 demandChange = false;
             }
+#if DESKTOPGL
+            if (importCopyRunning)
+                return false;
+#endif
             // Organizing
             if(!organizing && organizeFile > -1 && organizeType > -1)
             {
@@ -1176,6 +1197,22 @@ namespace NonsensicalVideoGenerator
                                                     Global.justCompletedRender = true;
                                                 }
                                                 */
+                                                string openPath = file.Path;
+                                                if (file.Type != null && file.Type.RootType == LibraryRootType.Video)
+                                                    openPath = LibraryData.GetLocalizedDefaultOutro(file.Path);
+                                                if (!MediaGuard.CanOpen(openPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blocked))
+                                                {
+                                                    ConsoleOutput.WriteLine(blocked, Color.Red);
+                                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                    try
+                                                    {
+                                                        GlobalContent.PlaySound("Error");
+                                                    }
+                                                    catch
+                                                    {
+                                                    }
+                                                    return true;
+                                                }
                                                 FramePlayer.Stop();
                                                 if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
                                                 {
@@ -1202,15 +1239,25 @@ namespace NonsensicalVideoGenerator
                                                             Global.generator.progressText = L.T(0, "Video:StatusLoad");
                                                             FramePlayer.PrepareLibraryPreview(LibraryData.GetLocalizedDefaultOutro(file.Path ?? ""));
 #else
-                                                            string cachePath = VideoCache.GetCachePath(LibraryData.GetLocalizedDefaultOutro(file.Path));
-                                                            UserInterface.instance.videoPath = cachePath;
-                                                            UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
-                                                            //UserInterface.instance.videoPlayer.IsLooped = true;
-                                                            UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                                                            Global.videoPlaying = true;
-                                                            UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
-                                                            FramePlayer.canPlayBgMusic = false;
-                                                            Global.generator.progressText = L.T(0, "Video:StatusPlay");
+                                                            string sourcePath = LibraryData.GetLocalizedDefaultOutro(file.Path);
+                                                            string cachePath = VideoCache.GetCachePath(sourcePath);
+                                                            if (!MediaGuard.CanOpen(cachePath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string why))
+                                                            {
+                                                                ConsoleOutput.WriteLine(why, Color.Red);
+                                                                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                                Global.videoPlaying = false;
+                                                            }
+                                                            else
+                                                            {
+                                                                UserInterface.instance.videoPath = cachePath;
+                                                                UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+                                                                //UserInterface.instance.videoPlayer.IsLooped = true;
+                                                                UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                                                Global.videoPlaying = true;
+                                                                UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                                                FramePlayer.canPlayBgMusic = false;
+                                                                Global.generator.progressText = L.T(0, "Video:StatusPlay");
+                                                            }
 #endif
                                                         }
                                                         else
@@ -1557,30 +1604,21 @@ namespace NonsensicalVideoGenerator
                                                 localizationToken = "Library:ImportAudioPicker";
                                             if (currentLibraryType == DefaultLibraryTypes.Image)
                                                 localizationToken = "Library:ImportImagePicker";
-                                            string[] picked = PlatformFileDialog.OpenFiles(
+                                            LibraryType importType = currentLibraryType;
+                                            if (!PlatformFileDialog.TryBegin(
                                                 L.T(0, localizationToken, LibraryData.libraryNames[currentLibraryType]),
                                                 filter,
                                                 true,
-                                                null);
-                                            if (picked.Length > 0)
+                                                null,
+                                                out PlatformFileDialog.FileChooser chooser))
                                             {
-                                                bool success = true;
-                                                foreach (string file in picked)
-                                                {
-                                                    LibraryFile libraryFile = new(Path.GetFileNameWithoutExtension(file), file, currentLibraryType);
-                                                    LibraryFile? newFile = LibraryData.Load(libraryFile);
-                                                    if(newFile == null)
-                                                    {
-                                                        success = false;
-                                                        continue;
-                                                    }
-                                                    libraryFileCache[currentLibraryType].Add(newFile);
-                                                }
-                                                demandChange = true;
-                                                if(!success)
-                                                    GlobalContent.PlaySound("Error");
-                                                else
-                                                    GlobalContent.PlaySound("AddSource");
+                                                ConsoleOutput.WriteLine(PlatformFileDialog.LastNotice ?? "A file dialog is already open.", Color.Yellow);
+                                            }
+                                            else
+                                            {
+                                                pendingChooser = chooser;
+                                                pendingImportType = importType;
+                                                Global.generator.progressText = "Choosing files…";
                                             }
                                         }
 #endif
@@ -1681,5 +1719,92 @@ namespace NonsensicalVideoGenerator
                 return true;
             return false;
         }
+#if DESKTOPGL
+        void PumpChooser()
+        {
+            PlatformFileDialog.FileChooser? chooser = pendingChooser;
+            if (chooser == null || !chooser.Finished)
+                return;
+            string[] files = chooser.Files;
+            LibraryType? type = pendingImportType;
+            pendingChooser = null;
+            pendingImportType = null;
+            if (Global.exiting || files.Length == 0 || type == null)
+            {
+                Global.generator.progressText = "";
+                return;
+            }
+            BeginImport(type, files);
+        }
+
+        void BeginImport(LibraryType type, string[] files)
+        {
+            importCopyRunning = true;
+            lock (importGate)
+            {
+                importFinished = false;
+                importOk = 0;
+                importFail = 0;
+            }
+            Global.generator.progressText = "Copying imported media…";
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                int ok = 0;
+                int fail = 0;
+                foreach (string file in files)
+                {
+                    try
+                    {
+                        LibraryFile libraryFile = new(Path.GetFileNameWithoutExtension(file), file, type);
+                        LibraryFile? loaded = LibraryData.Load(libraryFile);
+                        if (loaded == null)
+                            fail++;
+                        else
+                            ok++;
+                    }
+                    catch (Exception ex)
+                    {
+                        fail++;
+                        ConsoleOutput.WriteLine("Import failed: " + ex.Message, Color.Red);
+                    }
+                }
+                lock (importGate)
+                {
+                    importOk = ok;
+                    importFail = fail;
+                    importFinished = true;
+                }
+            });
+        }
+
+        void PumpImport()
+        {
+            int ok;
+            int fail;
+            lock (importGate)
+            {
+                if (!importFinished)
+                    return;
+                importFinished = false;
+                importCopyRunning = false;
+                ok = importOk;
+                fail = importFail;
+            }
+            demandChange = true;
+            Global.generator.progressText = "";
+            try
+            {
+                if (ok > 0 && fail == 0)
+                    GlobalContent.PlaySound("AddSource");
+                else if (ok > 0)
+                    GlobalContent.PlaySound("AddSource");
+                else
+                    GlobalContent.PlaySound("Error");
+            }
+            catch
+            {
+            }
+        }
+#endif
     }
 }

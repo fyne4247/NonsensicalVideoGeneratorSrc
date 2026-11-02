@@ -257,6 +257,7 @@ namespace NonsensicalVideoGenerator
         static readonly object previewGate = new();
         static int libraryPreviewGeneration;
         static string? libraryPreviewPath;
+        static string? libraryPreviewError;
 
         /// <summary>
         /// Queues a DesktopGL-safe copy of a library video. Update starts the player.
@@ -268,6 +269,7 @@ namespace NonsensicalVideoGenerator
             {
                 gen = ++libraryPreviewGeneration;
                 libraryPreviewPath = null;
+                libraryPreviewError = null;
             }
             string ffmpeg = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
             string ffprobe = ToolPaths.Ffprobe(Global.useSystemFFprobe);
@@ -278,6 +280,18 @@ namespace NonsensicalVideoGenerator
                 string playable = sourcePath;
                 try
                 {
+                    string resolved = MediaPreview.ResolveInput(sourcePath, writable);
+                    MediaGuard.Verdict verdict = MediaGuard.Inspect(resolved, ffprobe);
+                    if (!verdict.Ok)
+                    {
+                        lock (previewGate)
+                        {
+                            if (gen != libraryPreviewGeneration)
+                                return;
+                            libraryPreviewError = verdict.Message;
+                        }
+                        return;
+                    }
                     playable = MediaPreview.EnsurePlayable(ffmpeg, ffprobe, sourcePath, cacheDir, writable);
                     if (!MediaPreview.IsInsideDirectory(playable, cacheDir))
                         playable = VideoCache.GetCachePath(playable);
@@ -302,16 +316,34 @@ namespace NonsensicalVideoGenerator
             {
                 libraryPreviewGeneration++;
                 libraryPreviewPath = null;
+                libraryPreviewError = null;
             }
         }
 
         static bool TryStartLibraryPreview()
         {
             string? ready;
+            string? error;
             lock (previewGate)
             {
                 ready = libraryPreviewPath;
                 libraryPreviewPath = null;
+                error = libraryPreviewError;
+                libraryPreviewError = null;
+            }
+            if (!string.IsNullOrEmpty(error))
+            {
+                ConsoleOutput.WriteLine(error, Color.Red);
+                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                Global.videoPlaying = false;
+                try
+                {
+                    GlobalContent.PlaySound("Error");
+                }
+                catch
+                {
+                }
+                return false;
             }
             if (string.IsNullOrEmpty(ready))
                 return false;
@@ -330,6 +362,13 @@ namespace NonsensicalVideoGenerator
                 {
                     UserInterface.instance.video.Dispose();
                     UserInterface.instance.video = null;
+                }
+                if (!MediaGuard.CanOpen(ready, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string why))
+                {
+                    ConsoleOutput.WriteLine(why, Color.Red);
+                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                    Global.videoPlaying = false;
+                    return false;
                 }
                 UserInterface.instance.videoPath = ready;
                 UserInterface.instance.video = VideoHelper.LoadFromFile(ready);
@@ -499,6 +538,20 @@ namespace NonsensicalVideoGenerator
         }
         public static void PlayMedia(LibraryFile file)
         {
+            string mediaPath = file.Path ?? "";
+            if (!MediaGuard.CanOpen(mediaPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string rejected))
+            {
+                ConsoleOutput.WriteLine(rejected, Color.Red);
+                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                try
+                {
+                    GlobalContent.PlaySound("Error");
+                }
+                catch
+                {
+                }
+                return;
+            }
             if(SaveData.saveValues["UseExternalVideoPlayer"] == "true")
             {
                 try
@@ -621,6 +674,10 @@ namespace NonsensicalVideoGenerator
         }
         public static void Update(GameTime gameTime)
         {
+#if DESKTOPGL
+            if (Global.exiting)
+                PlatformFileDialog.CancelActive();
+#endif
             if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
             {
                 bool startedLibraryPreview = false;
@@ -639,14 +696,23 @@ namespace NonsensicalVideoGenerator
                         UserInterface.instance.video.Dispose();
                         UserInterface.instance.video = null;
                     }
-                    UserInterface.instance.video = VideoHelper.LoadFromFile(UserInterface.instance.videoPath);
-                    UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                    UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
-                    if (ScreenManager.GetScreen<VideoScreen>("Video") == null
-                        || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
+                    if (!MediaGuard.CanOpen(UserInterface.instance.videoPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string replayWhy))
                     {
-                        ScreenManager.PushNavigation("Video");
-                        ScreenManager.GetScreen<VideoScreen>("Video")?.Show();
+                        ConsoleOutput.WriteLine(replayWhy, Color.Red);
+                        Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                        Global.videoPlaying = false;
+                    }
+                    else
+                    {
+                        UserInterface.instance.video = VideoHelper.LoadFromFile(UserInterface.instance.videoPath);
+                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                        UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                        if (ScreenManager.GetScreen<VideoScreen>("Video") == null
+                            || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
+                        {
+                            ScreenManager.PushNavigation("Video");
+                            ScreenManager.GetScreen<VideoScreen>("Video")?.Show();
+                        }
                     }
                 }
                 if(audioLength > 0 && currentAudioTime < audioLength && audioPlaying)

@@ -267,6 +267,19 @@ namespace NonsensicalVideoGenerator
                             LibraryFile file = new LibraryFile(Path.GetFileName(lastModifiedFile), lastModifiedFile, DefaultLibraryTypes.Render, true);
                             if(file.Path != null)
                             {
+                                if (!MediaGuard.CanOpen(file.Path, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string why))
+                                {
+                                    ConsoleOutput.WriteLine(why, Color.Red);
+                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                    try
+                                    {
+                                        GlobalContent.PlaySound("Error");
+                                    }
+                                    catch
+                                    {
+                                    }
+                                    return true;
+                                }
                                 FramePlayer.Stop();
                                 GlobalContent.PlaySound("Select");
                                 if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
@@ -287,6 +300,20 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.video = null;
                                         }
                                         string cachePath = VideoCache.GetCachePath(file.Path);
+                                        if (!MediaGuard.CanOpen(cachePath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string cacheWhy))
+                                        {
+                                            ConsoleOutput.WriteLine(cacheWhy, Color.Red);
+                                            Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                            Global.videoPlaying = false;
+                                            try
+                                            {
+                                                GlobalContent.PlaySound("Error");
+                                            }
+                                            catch
+                                            {
+                                            }
+                                            return true;
+                                        }
                                         UserInterface.instance.videoPath = cachePath;
                                         UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
                                         //UserInterface.instance.videoPlayer.IsLooped = true;
