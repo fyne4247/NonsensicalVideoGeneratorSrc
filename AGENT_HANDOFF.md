@@ -1149,3 +1149,15 @@ Sol's test diffs (c6968f4, f658747) reviewed: fine. Windows VM, fresh `git archi
 - Available disk measured322MiB before and4.6GiB after; do not attribute all change to cleanup (system/background reclamation possible). Owner source media, frozen evidence, /tmp artifacts/packages,750 and VM untouched.
 - Test evidence reused because code is byte-identical to f658747: Mac142/142 and native Release pass; Windows121pass/21skips/zero failures and build pass. Staging is for unfinished verification; historical wipe/real chooser/final package/windowed playback acceptance remain open.
 - NEXT ACTION: Continue testing and fresh packaging from local staging; keep reviewed future integration synchronized into staging. Main/dev remain untouched and nothing pushed. Preserve recovery data and remaining hard-4 copy unless separately resolved.
+
+## Opus: triage, final packages (hard-21)
+
+Hard: long native build chain with past failures (LAME triplet, x64 cross-build), a tight disk, and an owner-facing result. One worker: packaging needs no shared code changes.
+Owns: nothing in `src/`. May fix `tools/package/` and `tools/lame/` only if a script defect blocks it; report any such change. Base: team 59a6583 (same tree as staging).
+Rules: 'Rules for every worker' apply. Mac has about 6 GiB free and 750 about 8 GiB: check `df` first and stop at under 1.5 GiB. Outputs in new dirs only. Delete nothing, including `~/.atmux/recovery`, earlier `/tmp` builds and evidence. Reuse existing native builds if they verifiably match what's needed.
+Stages, in order:
+1. **osx-arm64 DMG** from the script. Verify: codesign, bundled ffmpeg and ffprobe run and have libmp3lame, the shipped `MonoGame.Extended.VideoPlayback.dll` is the patched image retargeted for arm64 (say how you verified it against `tools/videoplayback/HASHES.txt`, since retarget changes the hash), and the app launches with a temp data root at volume 10 and quits by AX menu.
+2. Set up a disposable owner test at new dir `/tmp/nvg-owner-r3`: the app copied in, fresh `data/`, a double-clickable launcher using `tools/test/trace-launch.sh` with NVG_TRACE=1. Do not launch it for the owner. **Report at this point** so the owner can test; then continue.
+3. **linux-x64 tarball** on 750, `ssh 750`, with package audit, headless launch if possible.
+4. **osx-x64 DMG** by the full script if disk allows; if not, say so with numbers.
+Report: paths, bytes, sha256, test commands and results, anything not verified. Tests: `dotnet test tests/NvgMedia.Tests` and `tests/NvgPlatform.Tests` on the Mac once first.
