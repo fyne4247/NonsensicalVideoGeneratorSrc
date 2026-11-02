@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 using MoonSharp.Interpreter;
 using Steamworks;
 using System.ComponentModel;
-using System.Net;
 using System.Globalization;
 #if WINDOWSDX
 using System.Windows.Forms;
@@ -68,6 +67,12 @@ namespace NonsensicalVideoGenerator
     }
     public class Command
     {
+        static Command()
+        {
+            // A job-folder addon download can call Fetch before LibraryData is touched.
+            AtomicDownload.FileOpHook = NvgTrace.FileOp;
+        }
+
         public CommandType type;
         public string customCommand = "";
         public string? args;
@@ -130,6 +135,22 @@ namespace NonsensicalVideoGenerator
             this.args = args;
             this.workingDirectory = workingDirectory;
         }
+        static bool AddonDownloadShouldStop()
+        {
+            if (Global.exiting)
+                return true;
+            if (Global.generator.vidThreadWorker?.CancellationPending == true)
+                return true;
+            if (Global.generator.effectTestThreadWorker?.CancellationPending == true)
+                return true;
+            return false;
+        }
+
+        static bool ProbeDownloadedMedia(string mediaPath)
+        {
+            return AtomicDownload.ProbeWithFfprobe(ToolPaths.Ffprobe(Global.useSystemFFprobe), mediaPath);
+        }
+
         public string[] Call()
         {
             if(type != CommandType.Download && type != CommandType.YtDlp)
@@ -246,65 +267,106 @@ namespace NonsensicalVideoGenerator
                 combinedPath = Path.GetFullPath(combinedPath);
                 // create directory if it doesn't exist
                 Directory.CreateDirectory(Path.GetDirectoryName(combinedPath) ?? ".");
-                if (File.Exists(combinedPath))
+                // A non-empty file is the Lua "already exists" case. A 0-byte file is absent.
+                if (AtomicDownload.ExistsAsValidFile(combinedPath))
                 {
                     ConsoleOutput.WriteLine($"File {combinedPath} already exists.", Color.LightBlue);
                     return new string[] { "", "" };
                 }
+                var publishedPaths = new List<string>();
                 if(type == CommandType.Download)
                 {
                     // Download file
                     ConsoleOutput.WriteLine($"Downloading {url}" + (subType != "" ? " to library " + rootType + "\\" + subType : ""), Color.LightBlue);
-                    using (WebClient client = new WebClient())
+                    AtomicDownload.DownloadResult result = AtomicDownload.Fetch(new AtomicDownload.Request
                     {
-                        client.DownloadFile(url, combinedPath);
+                        Url = url,
+                        FinalPath = combinedPath,
+                        KeepValidExisting = true,
+                        ShouldStop = AddonDownloadShouldStop,
+                        Probe = ProbeDownloadedMedia,
+                    });
+                    if (result.AlreadyExisted)
+                    {
+                        ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
+                        return new string[] { "", "" };
                     }
+                    if (!result.Published)
+                    {
+                        ConsoleOutput.WriteLine("Failed to download: " + result.Detail, Color.Red);
+                        // WebClient.DownloadFile used to throw, which failed the addon call.
+                        throw new IOException("Failed to download: " + result.Detail);
+                    }
+                    publishedPaths.AddRange(result.PublishedPaths);
                 }
                 else if(type == CommandType.YtDlp)
                 {
-                    // Download YouTube video
-                    string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
-                    string deno = ToolPaths.Deno(Global.useSystemYtDlp);
-                    bool sound = rootType == "audio";
-                    // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
-                    /*
-                    WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
-                            Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
-                            To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
-                            If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
-                    */
-                    // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
-                    ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " -o \"" + combinedPath + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
+                    // Download YouTube video into a staging directory the library scan skips.
+                    string destDir = Path.GetDirectoryName(combinedPath) ?? ".";
+                    AtomicDownload.SweepPartials(destDir);
+                    string staging = AtomicDownload.CreateStaging(destDir);
+                    try
                     {
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
+                        string template = AtomicDownload.StagingTemplate(staging);
+                        string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
+                        string deno = ToolPaths.Deno(Global.useSystemYtDlp);
+                        bool sound = rootType == "audio";
+                        // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
+                        /*
+                        WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
+                                Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
+                                To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
+                                If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
+                        */
+                        // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
+                        ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " " + AtomicDownload.SocketTimeoutArgument() + " -o \"" + template + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
+                        {
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
 #if DESKTOPGL
-                        RedirectStandardInput = true,
+                            RedirectStandardInput = true,
 #endif
-                    };
-                    Process process = new Process
-                    {
-                        StartInfo = startInfo
-                    };
-                    process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-                    {
-                        if(e.Data != null)
-                            ConsoleOutput.WriteLine(e.Data, Color.Transparent);
-                    };
-                    process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-                    {
-                        if(e.Data != null)
-                            ConsoleOutput.WriteLine(e.Data, Color.Red);
-                    };
-                    ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                    ProcessTree.StartTracked(process);
+                        };
+                        Process process = new Process
+                        {
+                            StartInfo = startInfo
+                        };
+                        process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+                        {
+                            if(e.Data != null)
+                                ConsoleOutput.WriteLine(e.Data, Color.Transparent);
+                        };
+                        process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
+                        {
+                            if(e.Data != null)
+                                ConsoleOutput.WriteLine(e.Data, Color.Red);
+                        };
+                        ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
+                        ProcessTree.StartTracked(process);
 #if DESKTOPGL
-                    process.StandardInput.Close();
+                        process.StandardInput.Close();
 #endif
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-                    process.WaitForExit();
+                        process.BeginOutputReadLine();
+                        process.BeginErrorReadLine();
+                        AtomicDownload.DownloadResult result = AtomicDownload.FinishStaged(
+                            process, staging, destDir, AddonDownloadShouldStop, ProbeDownloadedMedia, null, default);
+                        if (result.AlreadyExisted)
+                        {
+                            ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
+                            return new string[] { "", "" };
+                        }
+                        if (!result.Published)
+                        {
+                            ConsoleOutput.WriteLine("Failed to download: " + result.Detail, Color.Red);
+                            return new string[] { "", "" };
+                        }
+                        publishedPaths.AddRange(result.PublishedPaths);
+                    }
+                    finally
+                    {
+                        AtomicDownload.DeleteStaging(staging);
+                    }
                 }
                 else
                 {
@@ -314,12 +376,17 @@ namespace NonsensicalVideoGenerator
                 // Load to library
                 if(dummyType != null)
                 {
-                    ConsoleOutput.WriteLine($"Loading {combinedPath} to library", Color.LightBlue);
-                    LibraryFile libfile = new(Path.GetFileNameWithoutExtension(combinedPath), Path.Join(rootType, subType, Path.GetFileName(combinedPath)), dummyType);
-                    if(LibraryData.Load(libfile) == null)
+                    foreach (string published in publishedPaths)
                     {
-                        ConsoleOutput.WriteLine($"Failed to load {combinedPath} to library", Color.Red);
-                        return new string[] { "", "" };
+                        ConsoleOutput.WriteLine($"Loading {published} to library", Color.LightBlue);
+                        // Pass the published file. It already sits in the library, and Load
+                        // must not copy that path onto itself.
+                        LibraryFile libfile = new(Path.GetFileNameWithoutExtension(published), published, dummyType);
+                        if(LibraryData.Load(libfile) == null)
+                        {
+                            ConsoleOutput.WriteLine($"Failed to load {published} to library", Color.Red);
+                            return new string[] { "", "" };
+                        }
                     }
                     Global.justCompletedRender = true;
                 }
