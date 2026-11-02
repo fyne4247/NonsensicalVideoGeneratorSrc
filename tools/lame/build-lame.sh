@@ -55,6 +55,10 @@ HOST_FLAGS=""
 if [ "$target_arch" != "$host_arch" ]; then
     [ -n "$cc_triple" ] || { echo "error: $CC -dumpmachine failed" >&2; exit 1; }
     build_triple=$(/usr/bin/cc -dumpmachine)
+    # Apple's compiler calls this arm64; LAME 3.100 config.sub expects aarch64.
+    case $build_triple in
+        arm64-*) build_triple="aarch64-${build_triple#arm64-}" ;;
+    esac
     HOST_FLAGS="--host=$cc_triple --build=$build_triple"
     echo "==> cross compile LAME for $target_arch on $host_arch ($HOST_FLAGS)"
 fi
