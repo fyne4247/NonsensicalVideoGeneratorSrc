@@ -895,3 +895,17 @@ Open / risks:
 - hard-16 is rebuilding all3 packages from50a3a1e (=c936dc9 code), output-only, headless, no deletion. Newly derived music requires fresh content/packages; prior owner builds do not contain this round.
 - Next owner experiment MUST use disposable copied media with NVG_TRACE=1, materials watcher and before/after input hashes. Original affected root/evidence remain frozen; originals confirmed intact. Successful tracing tests alone are not proof the disappearance is fixed.
 - NEXT ACTION: await reviewed hard-16 artifacts, coordinate the safe instrumented experiment and continue root-cause investigation. Do not offer this as a completed safe port or merge to main until the data-loss gate is resolved. Nothing pushed/published.
+
+## Opus review: hard-16 packages, APPROVED (one script bug for Sol)
+
+- Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-16`, HEAD `50a3a1e` (no tracked edits; code = c936dc9). Worker closed. Mac tests: NvgPlatform 63/63, NvgMedia 20/20.
+
+| Package | Path | Bytes | sha256 |
+|---|---|---|---|
+| osx-arm64 DMG | `/tmp/nvg-hard16/out-arm64/NonsensicalVideoGenerator-1.8.3.0-osx-arm64.dmg` | 178017956 | f88e92cfe91ce52f09a6389dcbbc5dc89163d5036acdfd15747b2af1141be78e |
+| osx-x64 DMG | `/tmp/nvg-hard16/out-x64/NonsensicalVideoGenerator-1.8.3.0-osx-x64.dmg` | 145983125 | 82aecfb35ffccb7488352ec662c132ed8c46c39dcc8e2d97ba4a5b23105a8588 |
+| linux-x64 tarball | `~/nvg-hard16/out-linux/NonsensicalVideoGenerator-1.8.3.0-linux-x64.tar.gz` (750) | 190612225 | 8808e9a7a6f0b905d79eda8a889a2926dff4c17097ea5ba9ee931e61ce216782 |
+
+- Worker-reported: 6/6 locales; codesign OK on both apps; the dll has MediaPreview/ApplyCalledMediaLimit/AudioOutputFollower (UTF-8) and NVG_TRACE (UTF-16 literal); `ffmpeg -encoders` lists libmp3lame in all three; `desktopgl-music-PROVENANCE.txt` in Content/ and ThirdParty/; played music 0 clamps; audits "native library audit ok" and "spadinner ok"; no Steam/SharpCompress/ZstdSharp binaries.
+- **Script bug (Sol):** `tools/lame/build-lame.sh` passes `--build=$(cc -dumpmachine)` = `arm64-apple-darwin…` when cross-compiling osx-x64 on Apple Silicon, which LAME 3.100's config.sub rejects. Fix: map `arm64-` to `aarch64-` in the build triplet. The osx-x64 DMG uses a hand-built x86_64 static PIC libmp3lame with a matching signature file (reproducible only after the script fix).
+- Left in place (not deleted): failed work dir `/var/folders/.../nvg-macos.9dbR9K`, `/tmp/nvg-hard16/`, `~/nvg-hard16/` (750 now ~3.8 GB free).
