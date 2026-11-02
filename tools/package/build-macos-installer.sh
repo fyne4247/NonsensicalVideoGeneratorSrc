@@ -132,13 +132,15 @@ rm -rf "$APP/Contents/MacOS/lib/pkgconfig"
 cp "$FFMPEG_PREFIX/bin/ffmpeg" "$FFMPEG_PREFIX/bin/ffprobe" "$APP/Contents/MacOS/bin/"
 chmod 755 "$APP/Contents/MacOS/bin/ffmpeg" "$APP/Contents/MacOS/bin/ffprobe"
 TP="$APP/Contents/Resources/ThirdParty"
-mkdir -p -- "$TP/ffmpeg" "$TP/x264" "$TP/frei0r"
+mkdir -p -- "$TP/ffmpeg" "$TP/x264" "$TP/lame" "$TP/frei0r"
 cp "$FFMPEG_PREFIX/NVG-FFMPEG.txt" "$TP/ffmpeg/NVG-FFMPEG.txt"
 cp "$FFMPEG_PREFIX/LICENSE.GPLv3" "$TP/ffmpeg/LICENSE.GPLv3"
 if [ -f "$FFMPEG_PREFIX/LICENSE.LGPLv2.1" ]; then
     cp "$FFMPEG_PREFIX/LICENSE.LGPLv2.1" "$TP/ffmpeg/LICENSE.LGPLv2.1"
 fi
 cp "$DEPS/x264/NVG-X264.txt" "$DEPS/x264/COPYING" "$TP/x264/"
+cp "$DEPS/lame/NVG-LAME.txt" "$DEPS/lame/COPYING" "$TP/lame/"
+cp "$ROOT/content/desktopgl-music/PROVENANCE.txt" "$TP/desktopgl-music-PROVENANCE.txt"
 cp "$DEPS/frei0r/NVG-FREI0R.txt" "$DEPS/frei0r/COPYING" "$TP/frei0r/"
 nvg_stage_frei0r "$DEPS/frei0r" "$APP/Contents/MacOS/bin/frei0r-1"
 FFMPEG_TAG=$(sed -n 's/^tag=//p' "$TP/ffmpeg/NVG-FFMPEG.txt")
@@ -146,6 +148,8 @@ FFMPEG_COMMIT=$(sed -n 's/^commit=//p' "$TP/ffmpeg/NVG-FFMPEG.txt")
 FFMPEG_CONFIGURE=$(sed -n 's/^configure=//p' "$TP/ffmpeg/NVG-FFMPEG.txt")
 X264_COMMIT=$(sed -n 's/^commit=//p' "$TP/x264/NVG-X264.txt")
 X264_ASM=$(sed -n 's/^asm=//p' "$TP/x264/NVG-X264.txt")
+LAME_VERSION=$(sed -n 's/^version=//p' "$TP/lame/NVG-LAME.txt")
+LAME_SHA=$(sed -n 's/^sha256=//p' "$TP/lame/NVG-LAME.txt")
 FREI0R_TAG=$(sed -n 's/^tag=//p' "$TP/frei0r/NVG-FREI0R.txt")
 FREI0R_COMMIT=$(sed -n 's/^commit=//p' "$TP/frei0r/NVG-FREI0R.txt")
 [ -e "$APP/Contents/MacOS/lib/libavcodec.61.dylib" ] || nvg_die "libavcodec.61.dylib missing"
@@ -251,12 +255,13 @@ MAGICK_RECORD="- Version: $MAGICK_VERSION_BUILT
 - File: bin/magick
 - file(1): $MAGICK_DESC"
 OMITTED_RECORD="- Steam: omitted on purpose.
-- x264 CLI: the library is linked into FFmpeg. The x264 program is not shipped."
+- x264 CLI: the library is linked into FFmpeg. The x264 program is not shipped.
+- lame CLI: the library is linked into FFmpeg. The lame program is not shipped."
 
 NVG_VERSION=$VERSION
 PLATFORM_LABEL=$RID
 export NVG_VERSION PLATFORM_LABEL FFMPEG_TAG FFMPEG_COMMIT FFMPEG_CONFIGURE
-export X264_COMMIT X264_ASM FREI0R_TAG FREI0R_COMMIT VOCODER_COMMIT
+export X264_COMMIT X264_ASM LAME_VERSION LAME_SHA FREI0R_TAG FREI0R_COMMIT VOCODER_COMMIT
 export YTDLP_RECORD DENO_RECORD MAGICK_RECORD OMITTED_RECORD
 nvg_write_third_party "$APP/Contents/Resources/ThirdParty/THIRD_PARTY.md"
 nvg_write_source_offer "$APP/Contents/Resources/ThirdParty/SOURCE_OFFER.txt"
@@ -314,6 +319,8 @@ if [ "$RID" = "osx-x64" ] && [ "$HOST" = "arm64" ]; then
 fi
 PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/ffmpeg" -hide_banner -encoders | grep -E '(^|[[:space:]])libx264([[:space:]]|$)' >/dev/null \
     || nvg_die "signed ffmpeg does not list libx264"
+PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/ffmpeg" -hide_banner -encoders | grep -E '(^|[[:space:]])libmp3lame([[:space:]]|$)' >/dev/null \
+    || nvg_die "signed ffmpeg does not list libmp3lame"
 PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/magick" -size 16x16 "canvas:red" "$WORK/smoke/red.png"
 PATH=/usr/bin:/bin "$APP/Contents/MacOS/bin/magick" "$WORK/smoke/red.png" "$WORK/smoke/red.jpg"
 file "$WORK/smoke/red.jpg" | grep -q 'JPEG image data' || nvg_die "magick PNG to JPEG failed"

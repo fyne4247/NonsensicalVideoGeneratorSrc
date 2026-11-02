@@ -1117,31 +1117,31 @@
 /processorParam:TextureFormat=Color
 /build:graphics/vidwindow.png
 
-#begin music/theme1.ogg
+#begin desktopgl-music/music/theme1.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
 /build:music/theme1.ogg
 
-#begin music/theme2.ogg
+#begin desktopgl-music/music/theme2.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
 /build:music/theme2.ogg
 
-#begin music/theme3.ogg
+#begin desktopgl-music/music/theme3.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
 /build:music/theme3.ogg
 
-#begin music/theme4.ogg
+#begin desktopgl-music/music/theme4.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
 /build:music/theme4.ogg
 
-#begin music/theme5.ogg
+#begin desktopgl-music/music/theme5.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
@@ -1627,7 +1627,7 @@
 /processorParam:TextureFormat=Color
 /build:themes/halloween/graphics/tile.png
 
-#begin themes/halloween/music/theme1.ogg
+#begin desktopgl-music/themes/halloween/music/theme1.ogg
 /importer:OggImporter
 /processor:SongProcessor
 /processorParam:Quality=Best
