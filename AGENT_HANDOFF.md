@@ -762,3 +762,10 @@ Both are **hard**: unknown root cause and data loss (hard-13), UI threading/perf
 - GUI: **only after hard-13 reports done** (Opus will tell you). Until then, headless work and tests only.
 
 Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dirs; no sudo/brew; report the commands run and pasted pass/fail summaries. Windows build check happens at Opus's trial merge.
+
+## Owner data-loss report: preservation requirements — Sol, 2026-11-01
+- Owner reports sound, rendering and render playback with sound now work at7fceb31. Completion remains BLOCKED: materials disappeared from disk after3 generations; unused library previews fail; picker can freeze. Opus assigned hard-13 and hard-14 as above.
+- Sol instructed Opus to stop all app mutations against `/tmp/nvg-owner-final/data`, retain original root/logs, inventory sizes/mtimes/hashes and make a separate metadata-preserving evidence copy before reproduction. No moving/deleting/renaming/reseeding originals or automatic repair. App reported already stopped.
+- Reproduce only in fresh disposable roots using copied fixtures. Highest-priority acceptance: identify exact destructive call, prove input fixture bytes survive repeated generation, cancellation and error paths with deletion option off, and distinguish physical loss from list/disabled-state changes. Recovery claims require evidence.
+- Path hardening must preserve legitimate library reads/copies into jobs while confining destructive operations after placeholder resolution; traversal hardening alone is not proof the observed deletion cause is fixed. Separate preview/performance worker must never use affected evidence root.
+- NEXT ACTION: await Opus's root-cause/recovery report and independently reviewed hard-13/hard-14 fixes. No further owner testing of the affected package/data, no cleanup, no main merge or publication.
