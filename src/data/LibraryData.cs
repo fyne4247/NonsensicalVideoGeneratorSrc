@@ -284,49 +284,79 @@ namespace NonsensicalVideoGenerator
         }
         public static LibraryFile? Load(LibraryFile file)
         {
-            // Import the library file by copying it.
+            if (file == null)
+                return null;
             if(file.Type == null)
             {
                 ConsoleOutput.WriteLine("Cannot import library file: type is null.", Color.Red);
                 return null;
             }
-            string newpath = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[file.Type]));
-            if (!Directory.Exists(newpath))
-                Directory.CreateDirectory(newpath);
-            string newfile = Path.Combine(newpath, file.Nickname + Path.GetExtension(file.Path));
             if(file.Path == null)
             {
                 ConsoleOutput.WriteLine("Cannot import library file: path is null.", Color.Red);
                 return null;
             }
-            // Check to make sure the file isn't already in the library.
-            foreach(LibraryFile libfile in libraryFiles)
+            // Copy first. The library list, achievements, and save data stay on this thread.
+            LibraryFile? imported = CopyIntoLibrary(file, LibraryDownloadShouldStop);
+            if (imported == null)
             {
-                if(libfile.Path == newfile)
+                ConsoleOutput.WriteLine("Cannot import library file: " + file.Path, Color.Red);
+                return null;
+            }
+            AddImported(imported);
+            return imported;
+        }
+
+        /// <summary>
+        /// Copies a file into its library folder. Safe off the update thread:
+        /// it does not touch libraryFiles, SaveData, achievements, or Global.
+        /// The copy lands in a .nvgpart and is published by an atomic move.
+        /// Identical bytes keep the existing file. Different bytes get a
+        /// non-colliding name. A 0-byte final may be replaced. The source and
+        /// destination being the same file, which is how a finished render is
+        /// imported, leaves that file in place.
+        /// </summary>
+        public static LibraryFile? CopyIntoLibrary(LibraryFile file, Func<bool>? shouldStop)
+        {
+            if (file == null || file.Type == null || string.IsNullOrEmpty(file.Path))
+                return null;
+            if (!libraryPaths.TryGetValue(file.Type, out string? relative))
+                return null;
+            string directory = NvgPaths.Native(Path.Combine(libraryRootPath, relative));
+            Directory.CreateDirectory(directory);
+            string desired = Path.Combine(directory, file.Nickname + Path.GetExtension(file.Path));
+            AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(file.Path, desired, shouldStop);
+            if (!result.Published && !result.AlreadyExisted)
+                return null;
+            if (string.IsNullOrEmpty(result.FinalPath))
+                return null;
+            file.Path = result.FinalPath;
+            string publishedName = Path.GetFileNameWithoutExtension(result.FinalPath);
+            if (!string.IsNullOrEmpty(publishedName))
+                file.Nickname = publishedName;
+            return file;
+        }
+
+        /// <summary>
+        /// Update thread only. Records an imported file, then refreshes the next render name.
+        /// A path that is already listed is not added again.
+        /// </summary>
+        public static void AddImported(LibraryFile file)
+        {
+            if (file == null || string.IsNullOrEmpty(file.Path))
+                return;
+            bool listed = false;
+            for (int i = 0; i < libraryFiles.Count; i++)
+            {
+                if (SameLibraryPath(libraryFiles[i].Path, file.Path))
                 {
-                    // Make sure they're not the *exact* same file.
-                    if (!File.ReadAllBytes(libfile.Path).SequenceEqual(File.ReadAllBytes(file.Path)))
-                    {
-                        ConsoleOutput.WriteLine("Deleting existing library file", Color.Yellow);
-                        NvgTrace.FileOp("File.Delete", libfile.Path);
-                        File.Delete(libfile.Path);
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    listed = true;
+                    break;
                 }
             }
-            try
-            {
-                File.Copy(file.Path, newfile);
-            }
-            catch
-            {
-            }
-            file.Path = newfile;
-            libraryFiles.Add(file);
-            if(!file.Type.PreventImport)
+            if (!listed)
+                libraryFiles.Add(file);
+            if (!listed && file.Type != null && !file.Type.PreventImport)
             {
                 string achievement = "ACHIEVEMENT_LIBRARY_IMPORT";
                 Achievements.Award(achievement);
@@ -334,7 +364,25 @@ namespace NonsensicalVideoGenerator
                 SaveData.Save();
             }
             SequentialName();
-            return file;
+        }
+
+        static bool SameLibraryPath(string? left, string? right)
+        {
+            if (string.IsNullOrEmpty(left) || string.IsNullOrEmpty(right))
+                return false;
+            if (string.Equals(left, right, StringComparison.Ordinal))
+                return true;
+            try
+            {
+                StringComparison comparison = OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+                return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), comparison);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
         public static void SequentialName()
         {

@@ -247,6 +247,84 @@ namespace NonsensicalVideoGenerator
             return SweepDirectory(full);
         }
 
+        /// <summary>
+        /// Copies <paramref name="sourcePath"/> to a short partial beside
+        /// <paramref name="desiredPath"/>, then publishes with the download rule.
+        /// A non-empty destination is kept when the bytes match and is not
+        /// overwritten when they differ. A 0-byte destination may be replaced.
+        /// The same file for both paths is left untouched. Cancellation deletes
+        /// the partial and does not create a final file.
+        /// </summary>
+        public static DownloadResult ImportCopy(string? sourcePath, string? desiredPath, Func<bool>? shouldStop)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(desiredPath))
+                return DownloadResult.Fail("invalid");
+            string sourceFull;
+            string desiredFull;
+            try
+            {
+                if (!File.Exists(sourcePath))
+                    return DownloadResult.Fail("missing");
+                sourceFull = Path.GetFullPath(sourcePath);
+                desiredFull = Path.GetFullPath(desiredPath);
+            }
+            catch (Exception ex)
+            {
+                return DownloadResult.Fail(ex.Message);
+            }
+            if (string.Equals(sourceFull, desiredFull, PathComparison()))
+                return DownloadResult.Exists(desiredPath);
+            try
+            {
+                var sourceInfo = new FileInfo(sourcePath);
+                if (!sourceInfo.Exists || sourceInfo.Length <= 0)
+                    return DownloadResult.Fail("empty");
+            }
+            catch (Exception ex)
+            {
+                return DownloadResult.Fail(ex.Message);
+            }
+
+            string directory = Path.GetDirectoryName(desiredPath) ?? "";
+            if (directory.Length == 0)
+                directory = ".";
+            string partial = Path.Combine(directory, Guid.NewGuid().ToString("N") + PartialMarker);
+            Mark(partial);
+            bool published = false;
+            try
+            {
+                Directory.CreateDirectory(directory);
+                if (Stop(shouldStop))
+                    return DownloadResult.Fail("cancelled");
+                long copied = CopyToPartial(sourcePath, partial, shouldStop);
+                if (copied == -2)
+                    return DownloadResult.Fail("cancelled");
+                if (copied <= 0)
+                    return DownloadResult.Fail("length");
+                var sourceInfo = new FileInfo(sourcePath);
+                var partialInfo = new FileInfo(partial);
+                if (!sourceInfo.Exists || !partialInfo.Exists
+                    || sourceInfo.Length <= 0
+                    || partialInfo.Length != sourceInfo.Length
+                    || partialInfo.Length != copied)
+                    return DownloadResult.Fail(sourceInfo.Exists && sourceInfo.Length <= 0 ? "empty" : "length");
+                DownloadResult committed = CommitPartial(partial, desiredPath);
+                if (committed.Published)
+                    published = true;
+                return committed;
+            }
+            catch (Exception ex)
+            {
+                return DownloadResult.Fail(FailureDetail(ex));
+            }
+            finally
+            {
+                if (!published)
+                    TryDeleteFile(partial);
+                Unmark(partial);
+            }
+        }
+
         public static void CancelAll()
         {
             CancellationTokenSource[] tokens;
@@ -724,6 +802,32 @@ namespace NonsensicalVideoGenerator
             {
                 return false;
             }
+        }
+
+        static long CopyToPartial(string source, string partial, Func<bool>? shouldStop)
+        {
+            using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            long expected = input.Length;
+            if (expected <= 0)
+                return -1;
+            using var output = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            byte[] buffer = new byte[81920];
+            long copied = 0;
+            while (copied < expected)
+            {
+                int want = (int)Math.Min(buffer.Length, expected - copied);
+                int read = input.Read(buffer, 0, want);
+                if (read <= 0)
+                    return -1;
+                output.Write(buffer, 0, read);
+                copied += read;
+                if (Stop(shouldStop))
+                    return -2;
+            }
+            output.Flush(true);
+            if (input.Length != expected)
+                return -1;
+            return copied;
         }
 
         static int ReadChunk(Stream stream, byte[] buffer)

@@ -379,7 +379,9 @@ namespace NonsensicalVideoGenerator
                     foreach (string published in publishedPaths)
                     {
                         ConsoleOutput.WriteLine($"Loading {published} to library", Color.LightBlue);
-                        LibraryFile libfile = new(Path.GetFileNameWithoutExtension(published), Path.Join(rootType, subType, Path.GetFileName(published)), dummyType);
+                        // Pass the published file. It already sits in the library, and Load
+                        // must not copy that path onto itself.
+                        LibraryFile libfile = new(Path.GetFileNameWithoutExtension(published), published, dummyType);
                         if(LibraryData.Load(libfile) == null)
                         {
                             ConsoleOutput.WriteLine($"Failed to load {published} to library", Color.Red);

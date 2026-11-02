@@ -702,6 +702,200 @@ public sealed class AtomicDownloadTests
     }
 
     [Fact]
+    public void Interrupted_import_leaves_no_final_file()
+    {
+        string dir = NewDir();
+        string source = Path.Combine(dir, "incoming.mp4");
+        byte[] body = new byte[200_000];
+        body[0] = 9;
+        body[^1] = 8;
+        File.WriteAllBytes(source, body);
+        string existing = Path.Combine(dir, "kept.mp4");
+        byte[] original = Seed(existing, 24);
+        int checks = 0;
+        AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(
+            source,
+            existing,
+            () => Interlocked.Increment(ref checks) > 1);
+        Assert.False(result.Published);
+        Assert.False(result.AlreadyExisted);
+        Assert.Equal("cancelled", result.Detail);
+        AssertSame(existing, original);
+        Assert.Equal(body, File.ReadAllBytes(source));
+        Assert.False(File.Exists(Path.Combine(dir, "kept (2).mp4")));
+        AssertNoPartial(dir);
+        Assert.True(checks > 1);
+    }
+
+    [Fact]
+    public void Import_collision_keeps_both_files()
+    {
+        string dir = NewDir();
+        string sourceDir = Path.Combine(dir, "in");
+        Directory.CreateDirectory(sourceDir);
+        string source = Path.Combine(sourceDir, "incoming.mp4");
+        byte[] body = Encoding.UTF8.GetBytes("imported-bytes-differ");
+        File.WriteAllBytes(source, body);
+        string existing = Path.Combine(dir, "clip.mp4");
+        byte[] original = Seed(existing, 36);
+        AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(source, existing, null);
+        string second = Path.Combine(dir, "clip (2).mp4");
+        Assert.True(result.Published);
+        Assert.Equal(second, result.FinalPath);
+        Assert.Equal(body, File.ReadAllBytes(second));
+        AssertSame(existing, original);
+        AssertNoPartial(dir);
+    }
+
+    [Fact]
+    public void Identical_import_does_not_duplicate_the_file()
+    {
+        string dir = NewDir();
+        string source = Path.Combine(dir, "in", "incoming.mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(source)!);
+        byte[] body = Encoding.UTF8.GetBytes("same-import-bytes");
+        File.WriteAllBytes(source, body);
+        string existing = Path.Combine(dir, "clip.mp4");
+        File.WriteAllBytes(existing, body);
+        AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(source, existing, null);
+        Assert.True(result.AlreadyExisted);
+        Assert.False(result.Published);
+        Assert.Equal("already exists", result.Detail);
+        Assert.Equal(existing, result.FinalPath);
+        Assert.False(File.Exists(Path.Combine(dir, "clip (2).mp4")));
+        Assert.Equal(body, File.ReadAllBytes(existing));
+        AssertNoPartial(dir);
+    }
+
+    [Fact]
+    public void Import_of_the_same_file_leaves_it_in_place()
+    {
+        string dir = NewDir();
+        string render = Path.Combine(dir, "Render1.mp4");
+        byte[] body = Seed(render, 48);
+        string alias = Path.Combine(dir, ".", "Render1.mp4");
+        AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(render, alias, null);
+        Assert.True(result.AlreadyExisted);
+        Assert.False(result.Published);
+        Assert.Equal(alias, result.FinalPath);
+        AssertSame(render, body);
+        Assert.False(File.Exists(Path.Combine(dir, "Render1 (2).mp4")));
+        Assert.Single(Directory.GetFiles(dir));
+        AssertNoPartial(dir);
+    }
+
+    [Fact]
+    public void Zero_byte_library_file_is_replaced_by_a_finished_import()
+    {
+        string dir = NewDir();
+        string source = Path.Combine(dir, "in.mp4");
+        byte[] body = Encoding.UTF8.GetBytes("healed-import");
+        File.WriteAllBytes(source, body);
+        string existing = Path.Combine(dir, "clip.mp4");
+        File.WriteAllBytes(existing, Array.Empty<byte>());
+        AtomicDownload.DownloadResult result = AtomicDownload.ImportCopy(source, existing, null);
+        Assert.True(result.Published);
+        Assert.Equal(existing, result.FinalPath);
+        Assert.Equal(body, File.ReadAllBytes(existing));
+        Assert.False(File.Exists(Path.Combine(dir, "clip (2).mp4")));
+        AssertNoPartial(dir);
+    }
+
+    [Fact]
+    public void Render_save_publishes_RenderN_and_a_same_path_reload_keeps_it()
+    {
+        string renders = Path.Combine(NewDir(), "library", "video", "renders");
+        Directory.CreateDirectory(renders);
+        string temp = Path.Combine(Path.GetDirectoryName(renders)!, "temp.mp4");
+        byte[] body = Encoding.UTF8.GetBytes("finished-render-body");
+        File.WriteAllBytes(temp, body);
+        string render = Path.Combine(renders, "Render1.mp4");
+        var ops = new List<string>();
+        AtomicDownload.FileOpHook = (op, parts) =>
+        {
+            lock (ops)
+                ops.Add(op + " " + (parts == null ? "" : string.Join(" ", parts)));
+        };
+        try
+        {
+            AtomicDownload.DownloadResult saved = AtomicDownload.ImportCopy(temp, render, null);
+            Assert.True(saved.Published);
+            Assert.Equal(render, saved.FinalPath);
+            Assert.Equal(body, File.ReadAllBytes(render));
+            Assert.Equal(body, File.ReadAllBytes(temp));
+            Assert.Contains(ops, line => line.StartsWith("File.Move ", StringComparison.Ordinal) && line.Contains(render, StringComparison.Ordinal));
+            AssertNoPartial(renders);
+
+            ops.Clear();
+            AtomicDownload.DownloadResult again = AtomicDownload.ImportCopy(render, Path.Combine(renders, ".", "Render1.mp4"), null);
+            Assert.True(again.AlreadyExisted);
+            Assert.False(again.Published);
+            Assert.Equal(body, File.ReadAllBytes(render));
+            Assert.False(File.Exists(Path.Combine(renders, "Render1 (2).mp4")));
+            Assert.DoesNotContain(ops, line => line.StartsWith("File.Move ", StringComparison.Ordinal));
+            Assert.Single(Directory.GetFiles(renders));
+        }
+        finally
+        {
+            AtomicDownload.FileOpHook = null;
+        }
+    }
+
+    [Fact]
+    public void Library_import_splits_the_copy_from_the_library_update()
+    {
+        string root = RepoRoot();
+        string library = File.ReadAllText(Path.Combine(root, "src", "data", "LibraryData.cs"));
+        string load = MethodBody(library, "public static LibraryFile? Load(LibraryFile file)");
+        string copy = MethodBody(library, "public static LibraryFile? CopyIntoLibrary(LibraryFile file, Func<bool>? shouldStop)");
+        string add = MethodBody(library, "public static void AddImported(LibraryFile file)");
+        Assert.Contains("CopyIntoLibrary(file, LibraryDownloadShouldStop)", load, StringComparison.Ordinal);
+        Assert.Contains("AddImported(imported)", load, StringComparison.Ordinal);
+        Assert.DoesNotContain("File.Copy", load, StringComparison.Ordinal);
+        Assert.DoesNotContain("File.Delete", load, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReadAllBytes", load, StringComparison.Ordinal);
+        Assert.Contains("file.Nickname + Path.GetExtension(file.Path)", copy, StringComparison.Ordinal);
+        Assert.Contains("AtomicDownload.ImportCopy", copy, StringComparison.Ordinal);
+        Assert.DoesNotContain("libraryFiles", copy, StringComparison.Ordinal);
+        Assert.DoesNotContain("SaveData", copy, StringComparison.Ordinal);
+        Assert.DoesNotContain("Achievements", copy, StringComparison.Ordinal);
+        Assert.DoesNotContain("SequentialName", copy, StringComparison.Ordinal);
+        Assert.DoesNotContain("Global.", copy, StringComparison.Ordinal);
+        Assert.Contains("libraryFiles.Add(file)", add, StringComparison.Ordinal);
+        Assert.Contains("Achievements.Award(achievement)", add, StringComparison.Ordinal);
+        Assert.Contains("TotalMediaImported", add, StringComparison.Ordinal);
+        Assert.Contains("SequentialName()", add, StringComparison.Ordinal);
+
+        string generator = File.ReadAllText(Path.Combine(root, "src", "backend", "Generator.cs"));
+        Assert.Contains("tempOutput = Path.Combine(AppPaths.Writable, \"library\", \"video\", \"renders\", Global.videoTitle + \".mp4\")", generator, StringComparison.Ordinal);
+        Assert.Equal(2, CountOf(generator, "new LibraryFile(Global.videoTitle, tempOutput, DefaultLibraryTypes.Render)"));
+        Assert.Equal(2, CountOf(generator, "LibraryData.Load(libraryFile)"));
+    }
+
+    static string MethodBody(string source, string signature)
+    {
+        int start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, signature);
+        int next = source.IndexOf("public static", start + signature.Length, StringComparison.Ordinal);
+        Assert.True(next > start, signature);
+        return source.Substring(start, next - start);
+    }
+
+    static int CountOf(string text, string needle)
+    {
+        int count = 0;
+        int from = 0;
+        while (true)
+        {
+            int at = text.IndexOf(needle, from, StringComparison.Ordinal);
+            if (at < 0)
+                return count;
+            count++;
+            from = at + needle.Length;
+        }
+    }
+
+    [Fact]
     public void Ffprobe_accepts_a_wav_and_rejects_a_missing_tool_or_junk()
     {
         string dir = NewDir();
