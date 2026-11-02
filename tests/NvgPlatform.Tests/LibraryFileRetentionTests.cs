@@ -8,20 +8,31 @@ public sealed class LibraryFileRetentionTests
     [Fact]
     public void Replaced_library_paths_stay_out_of_plugin_file_ops()
     {
-        string job = Path.Combine(Path.GetTempPath(), "nvg-job-" + Guid.NewGuid().ToString("n"));
+        string root = Path.Combine(Path.GetTempPath(), "nvg-rules-" + Guid.NewGuid().ToString("n"));
+        string job = Path.Combine(root, "temp", "job");
+        string library = Path.Combine(root, "library");
         Directory.CreateDirectory(job);
+        Directory.CreateDirectory(library);
         try
         {
-            Assert.False(LibraryPathRules.StaysInsideJob(job, "../.././library/video/materials/clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, "../" + "../library/video/materials/clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, @"..\..\library\video\materials\clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, @"..\library\video\materials\clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, "/tmp/library/video/materials/clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, @"C:\library\video\materials\clip.mp4"));
-            Assert.False(LibraryPathRules.StaysInsideJob(job, @"\\server\share\clip.mp4"));
-            Assert.True(LibraryPathRules.StaysInsideJob(job, "./frames/_frame0.png"));
-            Assert.True(LibraryPathRules.StaysInsideJob(job, "output.mp4"));
-            Assert.True(LibraryPathRules.StaysInsideJob(job, @"frames\clip.png"));
+            string posix = "../../library/video/materials/clip.mp4";
+            string windows = @"..\..\library\video\materials\clip.mp4";
+            // Library files can be copied into the job. They cannot be deleted, moved, or overwritten.
+            Assert.True(LibraryPathRules.CanCopyFrom(job, library, posix));
+            Assert.True(LibraryPathRules.CanCopyFrom(job, library, windows));
+            Assert.False(LibraryPathRules.CanAlter(job, library, posix));
+            Assert.False(LibraryPathRules.CanAlter(job, library, windows));
+            Assert.False(LibraryPathRules.CanAlter(job, library, "../" + "../library/video/materials/clip.mp4"));
+            Assert.False(LibraryPathRules.CanAlter(job, library, @"..\library\video\materials\clip.mp4"));
+            Assert.False(LibraryPathRules.CanCopyFrom(job, library, "/tmp/library/video/materials/clip.mp4"));
+            Assert.False(LibraryPathRules.CanAlter(job, library, "/tmp/library/video/materials/clip.mp4"));
+            Assert.False(LibraryPathRules.CanAlter(job, library, @"C:\library\video\materials\clip.mp4"));
+            Assert.False(LibraryPathRules.CanAlter(job, library, @"\\server\share\clip.mp4"));
+            Assert.False(LibraryPathRules.CanAlter(job, library, posix.Replace("clip.mp4", "")));
+            Assert.True(LibraryPathRules.CanAlter(job, library, "./frames/_frame0.png"));
+            Assert.True(LibraryPathRules.CanAlter(job, library, "output.mp4"));
+            Assert.True(LibraryPathRules.CanAlter(job, library, @"frames\clip.png"));
+            Assert.True(LibraryPathRules.CanCopyFrom(job, library, "output.mp4"));
             Assert.False(LibraryPathRules.FlagIsTrue("false"));
             Assert.False(LibraryPathRules.FlagIsTrue(null));
             Assert.False(LibraryPathRules.FlagIsTrue(""));
@@ -29,7 +40,8 @@ public sealed class LibraryFileRetentionTests
         }
         finally
         {
-            Directory.Delete(job, true);
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
         }
     }
 
@@ -60,19 +72,32 @@ public sealed class LibraryFileRetentionTests
             {
                 foreach (string name in names)
                 {
-                    string posix = "../.././library/video/materials/" + name;
+                    string posix = "../../library/video/materials/" + name;
                     string windows = @"..\..\library\video\materials\" + name;
                     string absolute = "/tmp/outside/" + name;
-                    Assert.False(LibraryPathRules.StaysInsideJob(job, posix), cycle);
-                    Assert.False(LibraryPathRules.StaysInsideJob(job, windows), cycle);
-                    Assert.False(LibraryPathRules.StaysInsideJob(job, absolute), cycle);
+                    string fixture = Path.Combine(materials, name);
+                    // Reading the library file into the job is allowed. Changing it is not.
+                    Assert.True(LibraryPathRules.CanCopyFrom(job, Path.Combine(root, "library"), posix), cycle);
+                    Assert.True(LibraryPathRules.CanCopyFrom(job, Path.Combine(root, "library"), windows), cycle);
+                    Assert.False(LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), posix), cycle);
+                    Assert.False(LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), windows), cycle);
+                    Assert.False(LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), absolute), cycle);
                     // The pre-replacement check sees only the placeholder, so it allows the op.
                     string raw = "{File_1}";
                     Assert.DoesNotContain("..", raw, StringComparison.Ordinal);
                     Assert.DoesNotContain(":\\", raw, StringComparison.Ordinal);
-                    string resolved = Path.GetFullPath(Path.Combine(job, posix));
-                    Assert.Equal(Path.GetFullPath(Path.Combine(materials, name)), resolved);
+                    string? resolved = LibraryPathRules.ResolveReplaced(job, posix);
+                    Assert.Equal(Path.GetFullPath(fixture), resolved);
                     Assert.False(LibraryPathRules.FlagIsTrue("false"));
+                    // Allowed copy into the job leaves the library bytes alone.
+                    if (LibraryPathRules.CanCopyFrom(job, Path.Combine(root, "library"), posix)
+                        && LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), name))
+                    {
+                        File.Copy(fixture, Path.Combine(job, name), true);
+                    }
+                    // Destructive ops are refused, so the fixture is not deleted or moved.
+                    if (LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), posix))
+                        File.Delete(fixture);
                 }
                 foreach (KeyValuePair<string, string> pair in hashes)
                 {
@@ -83,8 +108,8 @@ public sealed class LibraryFileRetentionTests
 
             string local = Path.Combine(job, "scratch.txt");
             File.WriteAllText(local, "job-local");
-            Assert.True(LibraryPathRules.StaysInsideJob(job, "scratch.txt"));
-            if (LibraryPathRules.FlagIsTrue("true") && LibraryPathRules.StaysInsideJob(job, "scratch.txt"))
+            Assert.True(LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), "scratch.txt"));
+            if (LibraryPathRules.FlagIsTrue("true") && LibraryPathRules.CanAlter(job, Path.Combine(root, "library"), "scratch.txt"))
                 File.Delete(local);
             Assert.False(File.Exists(local));
             foreach (KeyValuePair<string, string> pair in hashes)
@@ -101,16 +126,23 @@ public sealed class LibraryFileRetentionTests
     public void File_ops_check_the_path_after_placeholder_replacement()
     {
         string handler = File.ReadAllText(Path.Combine(RepoRoot(), "src", "data", "PluginHandler.cs"));
-        foreach (string method in new[] { "void FileCopy", "void FileDelete", "void FileMove" })
+        foreach (string method in new[] { "void FileDelete", "void FileMove", "void WriteFile" })
         {
             int start = handler.IndexOf(method, StringComparison.Ordinal);
             Assert.True(start >= 0, method);
             int end = handler.IndexOf("public static", start + method.Length, StringComparison.Ordinal);
             string body = handler.Substring(start, end - start);
             int replaced = body.IndexOf("ReplacePlaceholders", StringComparison.Ordinal);
-            int confined = body.IndexOf("ConfinedToJob", StringComparison.Ordinal);
-            Assert.True(replaced >= 0 && confined > replaced, method);
+            int alter = body.IndexOf("CanAlter", StringComparison.Ordinal);
+            Assert.True(replaced >= 0 && alter > replaced, method);
         }
+        int copyStart = handler.IndexOf("void FileCopy", StringComparison.Ordinal);
+        int copyEnd = handler.IndexOf("public static", copyStart + "void FileCopy".Length, StringComparison.Ordinal);
+        string copyBody = handler.Substring(copyStart, copyEnd - copyStart);
+        int copyReplaced = copyBody.IndexOf("ReplacePlaceholders", StringComparison.Ordinal);
+        int copyFrom = copyBody.IndexOf("CanCopyFrom", StringComparison.Ordinal);
+        int copyAlter = copyBody.IndexOf("CanAlter", StringComparison.Ordinal);
+        Assert.True(copyReplaced >= 0 && copyFrom > copyReplaced && copyAlter > copyFrom);
         string generator = File.ReadAllText(Path.Combine(RepoRoot(), "src", "backend", "Generator.cs"));
         Assert.Contains("LibraryPathRules.FlagIsTrue(SaveData.saveValues[\"DeleteClipsAfterMaxUniqueClips\"])", generator, StringComparison.Ordinal);
         Assert.DoesNotContain("bool.Parse(SaveData.saveValues[\"DeleteClipsAfterMaxUniqueClips\"])", generator, StringComparison.Ordinal);

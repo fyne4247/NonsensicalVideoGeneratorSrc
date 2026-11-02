@@ -54,24 +54,44 @@ namespace NonsensicalVideoGenerator
         }
 
         /// <summary>
-        /// True when a plugin path, after placeholder replacement, stays inside the job directory.
-        /// Rejects Windows "..\", POSIX "../", a leading "/", and a drive-rooted path.
-        /// Path.Combine drops the job directory when the replacement is absolute.
+        /// Full path of a plugin argument after placeholder replacement.
+        /// Backslashes are normalized so a Windows "..\library\..." form resolves on macOS tests too.
+        /// An absolute replacement ignores the job directory, which is what Path.Combine does.
         /// </summary>
-        public static bool StaysInsideJob(string? jobDirectory, string? replacedPath)
+        public static string? ResolveReplaced(string? baseDirectory, string? replacedPath)
         {
-            if (string.IsNullOrEmpty(jobDirectory) || string.IsNullOrWhiteSpace(replacedPath))
-                return false;
-            if (EscapesJob(replacedPath))
+            if (string.IsNullOrWhiteSpace(replacedPath))
+                return null;
+            string path = replacedPath.Replace('\\', '/');
+            try
+            {
+                if (IsAbsolute(path))
+                    return Path.GetFullPath(path);
+                if (string.IsNullOrWhiteSpace(baseDirectory))
+                    return null;
+                return Path.GetFullPath(Path.Combine(baseDirectory, path));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// True when the resolved path is the root directory or a file inside it.
+        /// </summary>
+        public static bool IsUnderRoot(string? root, string? fullPath)
+        {
+            if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(fullPath))
                 return false;
             try
             {
-                string root = Path.GetFullPath(jobDirectory);
-                if (root[root.Length - 1] != Path.DirectorySeparatorChar && root[root.Length - 1] != Path.AltDirectorySeparatorChar)
-                    root += Path.DirectorySeparatorChar;
-                string combined = Path.GetFullPath(Path.Combine(jobDirectory, replacedPath));
+                string rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string candidate = Path.GetFullPath(fullPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 StringComparison compare = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-                return combined.StartsWith(root, compare);
+                if (string.Equals(candidate, rootFull, compare))
+                    return true;
+                return candidate.StartsWith(rootFull + Path.DirectorySeparatorChar, compare);
             }
             catch (Exception)
             {
@@ -79,18 +99,39 @@ namespace NonsensicalVideoGenerator
             }
         }
 
-        static bool EscapesJob(string replacedPath)
+        /// <summary>
+        /// Delete, move, and overwrite may touch this path only when it stays inside the job
+        /// and outside the library. Normal generation must not move or delete library files.
+        /// </summary>
+        public static bool CanAlter(string? jobDirectory, string? libraryRoot, string? replacedPath)
         {
-            if (replacedPath[0] == '/' || replacedPath[0] == '\\')
+            string? full = ResolveReplaced(jobDirectory, replacedPath);
+            if (full == null)
+                return false;
+            if (IsUnderRoot(libraryRoot, full))
+                return false;
+            return IsUnderRoot(jobDirectory, full);
+        }
+
+        /// <summary>
+        /// A copy source may be a job file or a library file. Addons read library files into the job.
+        /// </summary>
+        public static bool CanCopyFrom(string? jobDirectory, string? libraryRoot, string? replacedPath)
+        {
+            string? full = ResolveReplaced(jobDirectory, replacedPath);
+            if (full == null)
+                return false;
+            if (IsUnderRoot(libraryRoot, full))
                 return true;
-            if (replacedPath.Length >= 2 && replacedPath[1] == ':' && char.IsLetter(replacedPath[0]))
+            return IsUnderRoot(jobDirectory, full);
+        }
+
+        static bool IsAbsolute(string path)
+        {
+            if (path.Length >= 1 && path[0] == '/')
                 return true;
-            string normalized = replacedPath.Replace('\\', '/');
-            foreach (string part in normalized.Split('/'))
-            {
-                if (part == "..")
-                    return true;
-            }
+            if (path.Length >= 2 && path[1] == ':' && char.IsLetter(path[0]))
+                return true;
             return false;
         }
     }

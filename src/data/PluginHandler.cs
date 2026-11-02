@@ -527,16 +527,31 @@ namespace NonsensicalVideoGenerator
             if (!ValidateInput(dest)) return;
             string replacedSource = ReplacePlaceholders(source);
             string replacedDest = ReplacePlaceholders(dest);
-            if (!ConfinedToJob(replacedSource) || !ConfinedToJob(replacedDest)) return;
-            File.Copy(Path.Combine(jobDirectory, replacedSource), Path.Combine(jobDirectory, replacedDest));
+            // Library files are readable. Copying one into the job is how addons grab a clip.
+            if (!LibraryPathRules.CanCopyFrom(jobDirectory, LibraryRootPath(), replacedSource))
+            {
+                RefuseLibraryChange(replacedSource);
+                return;
+            }
+            // The destination must stay in the job. A library destination would overwrite stock media.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedDest);
+                return;
+            }
+            File.Copy(ResolvedPath(replacedSource), ResolvedPath(replacedDest));
         }
         // FileDelete for lua
         public static void FileDelete(string path)
         {
             if (!ValidateInput(path)) return;
             string replacedPath = ReplacePlaceholders(path);
-            if (!ConfinedToJob(replacedPath)) return;
-            string combinedPath = Path.Combine(jobDirectory, replacedPath);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
                 File.Delete(combinedPath);
         }
@@ -547,19 +562,31 @@ namespace NonsensicalVideoGenerator
             if (!ValidateInput(dest)) return;
             string replacedSource = ReplacePlaceholders(source);
             string replacedDest = ReplacePlaceholders(dest);
-            if (!ConfinedToJob(replacedSource) || !ConfinedToJob(replacedDest)) return;
-            string combinedSource = Path.Combine(jobDirectory, replacedSource);
+            // Moving either side under the library removes or replaces a library file.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedSource)
+                || !LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedSource + " -> " + replacedDest);
+                return;
+            }
+            string combinedSource = ResolvedPath(replacedSource);
             if (File.Exists(combinedSource))
-                File.Move(combinedSource, Path.Combine(jobDirectory, replacedDest));
+                File.Move(combinedSource, ResolvedPath(replacedDest));
         }
         // Placeholder values such as ../.././library/... are invisible to ValidateInput.
-        static bool ConfinedToJob(string replacedPath)
+        // Destructive ops refuse anything under the library root, or outside the job.
+        static string LibraryRootPath()
         {
-            if (LibraryPathRules.StaysInsideJob(jobDirectory, replacedPath))
-                return true;
-            ConsoleOutput.WriteLine("An addon attempted to perform directory traversal.", Color.Red);
+            return Path.GetFullPath(Path.Combine(AppPaths.Writable, "library"));
+        }
+        static string ResolvedPath(string replacedPath)
+        {
+            return LibraryPathRules.ResolveReplaced(jobDirectory, replacedPath) ?? Path.Combine(jobDirectory, replacedPath);
+        }
+        static void RefuseLibraryChange(string replacedPath)
+        {
+            ConsoleOutput.WriteLine("An addon attempted to modify a library file or a file outside the job.", Color.Red);
             ConsoleOutput.WriteLine("Offending command: " + replacedPath, Color.Red);
-            return false;
         }
         // FileExists for lua
         public static bool FileExists(string path)
@@ -591,7 +618,13 @@ namespace NonsensicalVideoGenerator
         public static void WriteFile(string path, string contents)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
                 File.Delete(combinedPath);
             File.WriteAllText(combinedPath, contents);
