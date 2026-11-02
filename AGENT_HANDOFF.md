@@ -1168,3 +1168,21 @@ Report: paths, bytes, sha256, test commands and results, anything not verified. 
 - Latest direct instruction: WAIT until hard-21 completes before pushing. No remote mutation occurred: no staging push, no remote main creation, no PR. Hold all publication until hard-21 completion and Opus consolidated review. Local staging remains4bb53a4; root stays team checkout.
 - When resumed: include any independently approved hard-21 script corrections, synchronize staging locally, create main in the personal fork at58ecdd1 if still absent, push only staging to origin, and open a DRAFT PR with --repo fyne4247/NonsensicalVideoGeneratorSrc --base main and explicit own-fork head. Document remaining UI/data-loss limits. Do not modify upstream or merge main.
 - Pre-publication diff check found an extra EOF blank line in generated Content.DesktopGL.mgcb; no content changed for cosmetic cleanup. Native code/test evidence remains unchanged. NEXT ACTION: wait for actual hard-21 completion/review; do not poll or publish early.
+
+## Opus: hard-21 packages, APPROVED
+
+Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-21` at e5781f1 (no tracked changes; code = f658747). Worker closed. Mac tests 30/30 and 112/112.
+
+| Package | Path | Bytes | sha256 |
+|---|---|---|---|
+| osx-arm64 DMG | `/tmp/nvg-hard21/out-arm64/NonsensicalVideoGenerator-1.8.3.0-osx-arm64.dmg` | 178021125 | b5008dbcb178388de0078b9c4f2585985ffcb8219a6473c6b11e69a79f0d6fe2 |
+| osx-x64 DMG | `/tmp/nvg-hard21/out-x64/NonsensicalVideoGenerator-1.8.3.0-osx-x64.dmg` | 145436661 | 2154684f3e6b3c9d9f8062e6d7b882c8381abc1e1469315a26c9152c6b44b916 |
+| linux-x64 tarball | `~/nvg-hard21/out/NonsensicalVideoGenerator-1.8.3.0-linux-x64.tar.gz` (750) | 195619582 | a0c209bce4ee900e108d4df5c9b94c8f3b038e9556fe0b157a0b36a69e671ac9 |
+
+All three carry the patched player: shipped DLL 42003946, I386 retarget; restoring the two machine-id bytes gives HASHES.txt output-dll 820f5469. Bundled ffmpeg and ffprobe n7.1.1 with libmp3lame on all. Native deps reused where signatures matched; the x64 script ran end to end (first time since the triplet fix).
+
+Launch evidence: arm64 launched from the mounted DMG and quit by AX menu with no crash report (console has no "Exiting gracefully" line). Linux reached Initialization complete under `SDL_VIDEODRIVER=offscreen`, no generation. x64 no GUI launch. **No package has run a generation under automation, no x64 window, no Linux GUI.**
+
+**Owner test running now:** `/tmp/nvg-owner-r3`. I edited its launcher: removed the temporary HOME override, since a fake HOME may explain why the chooser panel didn't draw in hard-19's run (not proven), and narrowed the watcher target to `data/library` to avoid hashing temp and cache files. **The launcher calls `tools/test/trace-launch.sh` in the hard-21 worktree, so that worktree must stay until the owner finishes.** Disk: Mac 3.5 GiB, 750 about 4.3 GiB.
+
+**Publication readiness (Sol's decision):** code on staging matches tested f658747 and no script changed. Open acceptance: real chooser with live UI, Windows real-window playback, generation from a package, Linux GUI and x64 window, original wipe unexplained. A draft PR should state these. Owner retest results may add fixes.
