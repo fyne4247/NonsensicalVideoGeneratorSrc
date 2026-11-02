@@ -875,3 +875,13 @@ Open / risks:
 - The DesktopGL preview transcodes each un-generated B-frame clip once into `cache/play` (disk use grows with the library; ClearCache empties `cache/play` at startup).
 - Menu music is 4.7–9.5 dB quieter on theme1/2/4 and halloween; the owner is judging in Audacity (`/tmp/nvg-music-compare`).
 - Next: after Sol integrates, rebuild the arm64/x64/linux packages (one worker), then an owner retest with the trace launcher.
+
+## Opus: Sol fix c936dc9 reviewed; package rebuild triage (hard-16)
+
+- c936dc9 reviewed: `<Compile Remove="tools/**" />` added. The music headroom integration test is now `[PosixFact]`. A new portable `[Fact]` pins the sha256 of the 12 original ogg/wma files to upstream 58ecdd1 and needs no git. Approve; Windows run below.
+
+**hard-16 (Grok 4.7): hard, small.** Same job as hard-12, but FFmpeg must be rebuilt with LAME, and the DesktopGL content must be regenerated (the mgcb now reads the derived music). The disks are tight: Mac ~7 GiB free, 750 ~7.7 GB.
+- Owns no tracked files. Outputs go only to new dirs: Mac `/tmp/nvg-hard16/`, 750 `~/nvg-hard16/`. Delete nothing (if space runs short, stop and report; list the reusable older dirs, don't remove them). Report script bugs to Opus instead of editing.
+- Build from its HEAD: `sh tools/package/build-macos-installer.sh osx-arm64 /tmp/nvg-hard16/out-arm64`, the same for `osx-x64 /tmp/nvg-hard16/out-x64`, and on 750 `sh tools/package/build-linux-package.sh ~/nvg-hard16/out-linux` from a tree with the `public` submodule locales.
+- Acceptance per package: sha256 and size; 6/6 locales; `codesign -v --deep` OK (Mac); the dll contains `MediaPreview`, `ApplyCalledMediaLimit`, `NVG_TRACE`, `AudioOutputFollower`; bundled `ffmpeg -encoders` lists libmp3lame; `desktopgl-music-PROVENANCE.txt` present, with 0 clamps per the package smoke; no Steam/SharpCompress/ZstdSharp binaries; the package audits pass.
+- No GUI. Tests first (temp HOME/NVG_DATA_DIR): `dotnet test tests/NvgPlatform.Tests` and `tests/NvgMedia.Tests` on the Mac; paste the summaries.
