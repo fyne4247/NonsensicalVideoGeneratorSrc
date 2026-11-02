@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using NonsensicalVideoGenerator;
 using Xunit;
 
 namespace NvgMedia.Tests;
@@ -65,6 +66,53 @@ public class VideoPlaybackLoadTests
         Assert.Equal(goodHash, Hash(good));
     }
 
+    [PosixFact]
+    public void Stub_Ffprobe_Accepts_An_Empty_File_And_TryLoad_Leaves_It()
+    {
+        string probe = BuildProbe();
+        string ffmpegLib = RequireFfmpegLib();
+        string dir = Path.Combine(env.Data, "tryload");
+        Directory.CreateDirectory(dir);
+        string stub = Path.Combine(dir, "ffprobe-accept.sh");
+        File.WriteAllText(stub, "#!/bin/sh\nprintf '%s\\n' 'mov,mp4'\n");
+        Chmod(stub);
+
+        // The stub accepts a zero-byte path. MediaGuard still rejects it before
+        // ffprobe, which is the friendly empty check. TryLoad is what catches
+        // the decoder when that file is opened anyway.
+        string empty = Path.Combine(dir, "empty.mp4");
+        File.WriteAllBytes(empty, Array.Empty<byte>());
+        string emptyHash = Hash(empty);
+        (int stubCode, string stubOut, _) = RunCaptured(stub, "\"" + empty + "\"");
+        Assert.Equal(0, stubCode);
+        Assert.Contains("mov,mp4", stubOut, StringComparison.Ordinal);
+        Assert.False(MediaGuard.CanOpen(empty, stub, out string emptyWhy));
+        Assert.Contains("empty", emptyWhy, StringComparison.OrdinalIgnoreCase);
+
+        (int tryCode, string tryOut, string tryErr) = RunCaptured(probe, "try \"" + empty + "\"", ffmpegLib);
+        Assert.True(tryCode == 0, tryOut + "\n" + tryErr);
+        Assert.Contains("FFmpegException", tryOut, StringComparison.Ordinal);
+        Assert.Contains("tryload false", tryOut, StringComparison.Ordinal);
+        Assert.Equal(emptyHash, Hash(empty));
+        Assert.Equal(0, new FileInfo(empty).Length);
+
+        // A few bytes pass the length check. The same stub makes the guard
+        // accept the file, and the decoder still throws through TryLoad.
+        string junk = Path.Combine(dir, "undecodable.mp4");
+        byte[] junkBytes = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7 };
+        File.WriteAllBytes(junk, junkBytes);
+        string junkHash = Hash(junk);
+        Assert.True(MediaGuard.CanOpen(junk, stub, out string accepted), accepted);
+
+        (int guardCode, string guardOut, string guardErr) = RunCaptured(probe, "guarded \"" + junk + "\" \"" + stub + "\"", ffmpegLib);
+        Assert.True(guardCode == 0, guardOut + "\n" + guardErr);
+        Assert.Contains("guard accepted", guardOut, StringComparison.Ordinal);
+        Assert.Contains("FFmpegException", guardOut, StringComparison.Ordinal);
+        Assert.Contains("tryload false", guardOut, StringComparison.Ordinal);
+        Assert.Equal(junkHash, Hash(junk));
+        Assert.Equal(junkBytes, File.ReadAllBytes(junk));
+    }
+
     void Cycles(string probe, string ffmpegLib, string file, string mode, int count)
     {
         for (int i = 0; i < count; i++)
@@ -102,6 +150,49 @@ public class VideoPlaybackLoadTests
                 Assert.Contains("closed", stdout, StringComparison.Ordinal);
             }
         }
+    }
+
+    (int Code, string Stdout, string Stderr) RunCaptured(string fileName, string arguments, string? ffmpegLib = null)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = env.Data,
+        };
+        start.Environment["HOME"] = env.Home;
+        start.Environment["NVG_DATA_DIR"] = env.Data;
+        start.Environment["XDG_DATA_HOME"] = Path.Combine(env.Home, ".local", "share");
+        start.Environment["DOTNET_ROOT"] = DotnetRoot();
+        if (ffmpegLib != null)
+            start.Environment["NVG_FFMPEG_LIB"] = ffmpegLib;
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException(fileName);
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(30000))
+        {
+            process.Kill(entireProcessTree: true);
+            return (124, "", "timed out");
+        }
+        return (process.ExitCode, stdoutTask.GetAwaiter().GetResult(), stderrTask.GetAwaiter().GetResult());
+    }
+
+    static void Chmod(string path)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = "/bin/chmod",
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("+x");
+        start.ArgumentList.Add(path);
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("chmod");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException("chmod failed for " + path);
     }
 
     static string BuildProbe()

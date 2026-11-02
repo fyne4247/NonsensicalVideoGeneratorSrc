@@ -7,9 +7,16 @@ using MonoGame.Extended.VideoPlayback;
 // bad: a managed exception is success (exit 0). A native crash is not.
 // good: open, decode one frame, dispose.
 
+if (args.Length == 2 && args[0] == "try")
+    return TryOnly(args[1]);
+if (args.Length == 3 && args[0] == "guarded")
+    return Guarded(args[1], args[2]);
+
 if (args.Length != 2 || args[0] is not ("bad" or "good"))
 {
     Console.Error.WriteLine("usage: LoadProbe bad|good <file>");
+    Console.Error.WriteLine("       LoadProbe try <file>");
+    Console.Error.WriteLine("       LoadProbe guarded <file> <ffprobe>");
     return 2;
 }
 
@@ -61,7 +68,52 @@ finally
     }
 }
 
-return code;
+return Finish(code);
+
+// try: VideoLoad only, so a file the guard would reject still proves the catch.
+static int TryOnly(string path)
+{
+    StageNativeLibraries();
+    bool loaded = NonsensicalVideoGenerator.VideoLoad.TryLoad(path, out var opened, out string why);
+    if (opened is IDisposable disposable)
+        disposable.Dispose();
+    if (loaded)
+    {
+        Console.Error.WriteLine("opened unexpectedly");
+        return Finish(2);
+    }
+    Console.WriteLine("tryload false " + why);
+    return Finish(0);
+}
+
+// guarded: MediaGuard must accept the file, then TryLoad catches the decoder.
+static int Guarded(string path, string ffprobe)
+{
+    StageNativeLibraries();
+    if (!NonsensicalVideoGenerator.MediaGuard.CanOpen(path, ffprobe, out string whyNot))
+    {
+        Console.WriteLine("guard rejected " + whyNot);
+        return Finish(3);
+    }
+    Console.WriteLine("guard accepted");
+    bool loaded = NonsensicalVideoGenerator.VideoLoad.TryLoad(path, out var opened, out string why);
+    if (opened is IDisposable disposable)
+        disposable.Dispose();
+    if (loaded)
+    {
+        Console.Error.WriteLine("opened unexpectedly");
+        return Finish(2);
+    }
+    Console.WriteLine("tryload false " + why);
+    return Finish(0);
+}
+
+static int Finish(int code)
+{
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    return code;
+}
 
 static void StageNativeLibraries()
 {

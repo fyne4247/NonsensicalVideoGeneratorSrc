@@ -2786,23 +2786,23 @@ namespace NonsensicalVideoGenerator
             }
             Global.generator.progressText = L.T(0, "Addons:StatusUploadSuccess");
             GlobalContent.PlaySound("RenderComplete");
-            string? publishedWorkshopId = null;
             if(publishPlugin != null)
             {
                 ConsoleOutput.WriteLine($"Successfully published addon {publishPlugin.GetDisplayName()} to the workshop.", Color.Green);
-                publishedWorkshopId = param.m_nPublishedFileId.ToString();
-                publishPlugin.submittedId = publishedWorkshopId;
+                publishPlugin.submittedId = param.m_nPublishedFileId.ToString();
                 // Write the plugin's workshop id to .publish in the plugin's directory.
                 string publishFile = Path.Combine(Path.GetDirectoryName(publishPlugin.path) ?? ".", ".publish");
                 File.WriteAllText(publishFile, publishPlugin.submittedId.ToString());
                 publishPlugin = null;
             }
             publishing = false;
-            // The id was cleared with publishPlugin, so open from the saved id.
-            // Windows tries steam:// first. DesktopGL uses https when no handler exists.
-            if (!string.IsNullOrEmpty(publishedWorkshopId))
+            // Open workshop URL in steam client
+            if (publishPlugin != null)
             {
-                PlatformUrl.Open("steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" + publishedWorkshopId);
+                string url = $"steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id={publishPlugin.submittedId}";
+                ProcessStartInfo startInfo = new ProcessStartInfo(url) { UseShellExecute = true };
+                ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
+                Process.Start(startInfo);
             }
         }
         // Only for effect types

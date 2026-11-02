@@ -6,7 +6,6 @@ using System.IO;
 using System.Diagnostics;
 using System.Threading;
 using System.Text.RegularExpressions;
-using MonoGame.Extended.VideoPlayback;
 using Microsoft.Xna.Framework;
 
 namespace NonsensicalVideoGenerator
@@ -1895,8 +1894,16 @@ namespace NonsensicalVideoGenerator
                 Global.videoPlaying = false;
                 return false;
             }
+            if (!VideoLoad.TryLoad(cachePath, out var loaded, out _))
+            {
+                UserInterface.instance.video = null;
+                UserInterface.instance.videoPath = "";
+                Global.videoPlaying = false;
+                FramePlayer.canPlayBgMusic = true;
+                return false;
+            }
             UserInterface.instance.videoPath = cachePath;
-            UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+            UserInterface.instance.video = loaded;
             return true;
         }
 

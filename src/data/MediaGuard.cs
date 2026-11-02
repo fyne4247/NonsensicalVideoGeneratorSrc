@@ -7,11 +7,12 @@ namespace NonsensicalVideoGenerator
 {
     /// <summary>
     /// Rejects missing, empty, and unprobeable media before VideoHelper.LoadFromFile.
-    /// The vendored player double-frees the AVFormatContext when avformat_open_input
-    /// fails. FFmpeg 7 frees that context and nulls the local pointer, then
-    /// DecodeContext.Dispose calls avformat_free_context on the stale field and
-    /// SIGSEGVs in av_opt_free. A rejected file must not be passed to the native decoder.
-    /// The file itself is not deleted.
+    /// The vendored player used to double-free the AVFormatContext when
+    /// avformat_open_input failed. That free is patched, so a failed open is a
+    /// managed FFmpegException. The guard stays so a bad file is turned away with
+    /// a message instead of that exception. The file itself is not deleted.
+    /// A file the probe accepts can still fail in the decoder; VideoLoad.TryLoad
+    /// catches that and leaves the file in place.
     /// </summary>
     public static class MediaGuard
     {

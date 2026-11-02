@@ -8,7 +8,6 @@ using System.IO;
 using System.Windows.Forms;
 #endif
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
 using System.Reflection;
 using System.Collections.Generic;
 
@@ -478,13 +477,25 @@ namespace NonsensicalVideoGenerator
                         if (!MediaGuard.CanOpen(videoPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blockedBoot))
                         {
                             ConsoleOutput.WriteLine(blockedBoot, Color.Red);
+                            video = null;
                             videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
+                        }
+                        else if (!VideoLoad.TryLoad(videoPath, out var loaded, out _))
+                        {
+                            // Clear the path and leave introFinished false so this
+                            // same update pushes the intro screen and reaches the menu.
+                            video = null;
+                            videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
                         }
                         else
                         {
-                            video = VideoHelper.LoadFromFile(videoPath);
+                            video = loaded;
                             // current time + intro duration
-                            introGoal = gameTime.TotalGameTime.TotalSeconds + video.Duration.Seconds + 1;
+                            introGoal = gameTime.TotalGameTime.TotalSeconds + loaded.Duration.Seconds + 1;
                             if(randomBootMovie.ToLower().EndsWith("defaultlogo.mp4"))
                             {
                                 introGoal -= 0.5;

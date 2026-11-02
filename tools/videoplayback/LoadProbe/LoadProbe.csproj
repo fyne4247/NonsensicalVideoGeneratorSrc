@@ -5,7 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants>$(DefineConstants);DESKTOPGL</DefineConstants>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\src\data\MediaGuard.cs" Link="MediaGuard.cs" />
+    <Compile Include="..\..\..\src\data\VideoLoad.cs" Link="VideoLoad.cs" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="MonoGame.Extended.VideoPlayback">
       <HintPath>..\..\..\packages\MonoGame.Extended.VideoPlayback\MonoGame.Extended.VideoPlayback.dll</HintPath>
