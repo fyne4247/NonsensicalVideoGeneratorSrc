@@ -300,6 +300,7 @@ namespace NonsensicalVideoGenerator
                     if (!File.ReadAllBytes(libfile.Path).SequenceEqual(File.ReadAllBytes(file.Path)))
                     {
                         ConsoleOutput.WriteLine("Deleting existing library file", Color.Yellow);
+                        NvgTrace.FileOp("File.Delete", libfile.Path);
                         File.Delete(libfile.Path);
                     }
                     else
@@ -368,6 +369,7 @@ namespace NonsensicalVideoGenerator
                 // that contains a list of disabled media paths.
                 DisabledMedia.Remove(file.Path);
                 DisabledMedia.Save();
+                NvgTrace.FileOp("File.Delete", file.Path);
                 File.Delete(file.Path);
                 //if(FileOperationAPIWrapper.Send(file.Path))
                     //libraryFiles.Remove(file);
@@ -527,6 +529,7 @@ namespace NonsensicalVideoGenerator
             string finalpath = Path.Combine(newpath, Path.GetFileName(source.Path));
             try
             {
+                NvgTrace.FileOp("File.Move", source.Path, finalpath);
                 File.Move(source.Path, finalpath);
             }
             catch
@@ -535,7 +538,9 @@ namespace NonsensicalVideoGenerator
                 try
                 {
                     libraryFiles.Remove(source);
+                    NvgTrace.FileOp("File.Delete", finalpath);
                     File.Delete(finalpath);
+                    NvgTrace.FileOp("File.Move", source.Path, finalpath);
                     File.Move(source.Path, finalpath);
                 }
                 catch (Exception e)
@@ -590,6 +595,7 @@ namespace NonsensicalVideoGenerator
                             Directory.CreateDirectory(direxist);
                     }
                     if(File.Exists(path))
+                        NvgTrace.FileOp("File.Delete", path);
                         File.Delete(path); // Delete the file if it already exists.
                     if(!youtube)
                     {
