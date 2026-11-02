@@ -84,14 +84,16 @@ rm -rf "$PKG/lib/pkgconfig"
 cp "$FFMPEG_PREFIX/bin/ffmpeg" "$FFMPEG_PREFIX/bin/ffprobe" "$PKG/bin/"
 chmod 755 "$PKG/bin/ffmpeg" "$PKG/bin/ffprobe"
 TP="$PKG/ThirdParty"
-mkdir -p -- "$TP/ffmpeg" "$TP/x264" "$TP/frei0r"
+mkdir -p -- "$TP/ffmpeg" "$TP/x264" "$TP/lame" "$TP/frei0r"
 cp "$FFMPEG_PREFIX/NVG-FFMPEG.txt" "$TP/ffmpeg/NVG-FFMPEG.txt"
 cp "$FFMPEG_PREFIX/LICENSE.GPLv3" "$TP/ffmpeg/LICENSE.GPLv3"
 if [ -f "$FFMPEG_PREFIX/LICENSE.LGPLv2.1" ]; then
     cp "$FFMPEG_PREFIX/LICENSE.LGPLv2.1" "$TP/ffmpeg/LICENSE.LGPLv2.1"
 fi
 cp "$DEPS/x264/NVG-X264.txt" "$DEPS/x264/COPYING" "$TP/x264/"
+cp "$DEPS/lame/NVG-LAME.txt" "$DEPS/lame/COPYING" "$TP/lame/"
 cp "$DEPS/frei0r/NVG-FREI0R.txt" "$DEPS/frei0r/COPYING" "$TP/frei0r/"
+cp "$ROOT/content/desktopgl-music/PROVENANCE.txt" "$TP/desktopgl-music-PROVENANCE.txt"
 nvg_stage_frei0r "$DEPS/frei0r" "$PKG/bin/frei0r-1"
 python3 "$ROOT/tools/package/linux/set_rpath_origin.py" "$PKG/lib" "$FFMPEG_PREFIX/lib"
 python3 "$ROOT/tools/package/linux/set_rpath_origin.py" "$PKG/bin" "$FFMPEG_PREFIX/lib" '$ORIGIN/../lib'
@@ -100,6 +102,8 @@ FFMPEG_COMMIT=$(sed -n 's/^commit=//p' "$TP/ffmpeg/NVG-FFMPEG.txt")
 FFMPEG_CONFIGURE=$(sed -n 's/^configure=//p' "$TP/ffmpeg/NVG-FFMPEG.txt")
 X264_COMMIT=$(sed -n 's/^commit=//p' "$TP/x264/NVG-X264.txt")
 X264_ASM=$(sed -n 's/^asm=//p' "$TP/x264/NVG-X264.txt")
+LAME_VERSION=$(sed -n 's/^version=//p' "$TP/lame/NVG-LAME.txt")
+LAME_SHA=$(sed -n 's/^sha256=//p' "$TP/lame/NVG-LAME.txt")
 FREI0R_TAG=$(sed -n 's/^tag=//p' "$TP/frei0r/NVG-FREI0R.txt")
 FREI0R_COMMIT=$(sed -n 's/^commit=//p' "$TP/frei0r/NVG-FREI0R.txt")
 [ -e "$PKG/lib/libavcodec.so.61" ] || nvg_die "libavcodec.so.61 missing"
@@ -202,12 +206,13 @@ fi
 
 OMITTED_RECORD="- Steam: omitted on purpose.
 - x264 CLI: the library is linked into FFmpeg. The x264 program is not shipped.
+- lame CLI: the library is linked into FFmpeg. The lame program is not shipped.
 - macOS ImageMagick source build: this tarball uses the Linux AppImage above."
 
 NVG_VERSION=$VERSION
 PLATFORM_LABEL=linux-x64
 export NVG_VERSION PLATFORM_LABEL FFMPEG_TAG FFMPEG_COMMIT FFMPEG_CONFIGURE
-export X264_COMMIT X264_ASM FREI0R_TAG FREI0R_COMMIT VOCODER_COMMIT
+export X264_COMMIT X264_ASM LAME_VERSION LAME_SHA FREI0R_TAG FREI0R_COMMIT VOCODER_COMMIT
 export YTDLP_RECORD DENO_RECORD MAGICK_RECORD OMITTED_RECORD
 nvg_write_third_party "$PKG/THIRD_PARTY.md"
 nvg_write_source_offer "$PKG/SOURCE_OFFER.txt"
@@ -236,6 +241,8 @@ python3 "$ROOT/tools/package/lib/smoke_ffmpeg.py" \
     "$PKG/bin/frei0r-1" \
     "$WORK/smoke" \
     "$PKG/ThirdParty/x264/NVG-X264-SPEED.txt"
+PATH=/usr/bin:/bin "$PKG/bin/ffmpeg" -hide_banner -encoders | grep -E '(^|[[:space:]])libmp3lame([[:space:]]|$)' >/dev/null \
+    || nvg_die "ffmpeg does not list libmp3lame"
 if [ -x "$PKG/bin/magick" ]; then
     if PATH=/usr/bin:/bin "$PKG/bin/magick" -size 16x16 "canvas:red" "$WORK/smoke/red.png" \
         && PATH=/usr/bin:/bin "$PKG/bin/magick" "$WORK/smoke/red.png" "$WORK/smoke/red.jpg" \

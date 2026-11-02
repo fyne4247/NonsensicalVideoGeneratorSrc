@@ -34,6 +34,8 @@ if [ ! -x "$DOTNET" ]; then
     exit 1
 fi
 
+echo "==> DesktopGL menu music headroom"
+python3 "$ROOT/tools/music/prepare-desktopgl-music.py"
 echo "==> content via $RUN $DOTNET"
 echo "==> output $OUT"
 cd "$ROOT"
@@ -47,5 +49,11 @@ $RUN "$DOTNET" tool run mgcb -- \
     "/intermediateDir:$INT" \
     "/workingDir:$ROOT/content"
 
+MANIFEST="$ROOT/content/desktopgl-music/PROVENANCE.txt"
+if [ ! -f "$MANIFEST" ]; then
+    echo "error: DesktopGL music provenance missing at $MANIFEST" >&2
+    exit 1
+fi
+cp "$MANIFEST" "$OUT/desktopgl-music-PROVENANCE.txt"
 echo "==> content build finished"
 find "$OUT" -name '*.xnb' | wc -l

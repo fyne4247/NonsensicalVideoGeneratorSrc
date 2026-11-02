@@ -38,7 +38,7 @@ The script:
 1. Builds DesktopGL content with `tools/build-content-desktopgl.sh`.
 2. Publishes a self-contained Release build: `dotnet publish -c Release -r <rid> --self-contained -p:NvgPlatform=DesktopGL`.
 3. Removes `steam_appid.txt`, Steam natives, the Windows FFmpeg DLLs, and `redist/` from the publish output. The DesktopGL publish step copies `baseroot/` as a whole, and those files are Windows-only.
-4. Builds static x264 (`tools/x264/build-x264.sh`), frei0r plugins (`tools/frei0r/build-frei0r.sh`), and one FFmpeg 7.1 build that produces the shared libraries plus `ffmpeg` and `ffprobe` (`tools/ffmpeg7/build-ffmpeg7.sh`, `--enable-gpl --enable-libx264 --enable-frei0r`). It then builds a static ImageMagick 7 `magick` with zlib, libpng and libjpeg-turbo (`tools/magick/build-magick.sh`) and the vocoder with `tools/vocoder/build-vocoder.sh`.
+4. Builds static x264 (`tools/x264/build-x264.sh`), frei0r plugins (`tools/frei0r/build-frei0r.sh`), static LAME 3.100 (`tools/lame/build-lame.sh`, LGPL-2.0-only), and one FFmpeg 7.1 build that produces the shared libraries plus `ffmpeg` and `ffprobe` (`tools/ffmpeg7/build-ffmpeg7.sh`, `--enable-gpl --enable-libx264 --enable-libmp3lame --enable-frei0r`). It then builds a static ImageMagick 7 `magick` with zlib, libpng and libjpeg-turbo (`tools/magick/build-magick.sh`) and the vocoder with `tools/vocoder/build-vocoder.sh`. The build fails if `ffmpeg -encoders` does not list `libmp3lame`.
 5. Downloads pinned yt-dlp and deno release binaries when the upstream checksum matches and `file(1)` shows the right architecture. See `tools/package/THIRD_PARTY.md`.
 6. Rewrites Mach-O install names to `@rpath` / `@loader_path`, writes `Info.plist` (bundle id `io.github.nvg.NonsensicalVideoGenerator`, version from the csproj), builds an `.icns` from `icon.ico`, ad-hoc signs with `codesign --force --deep -s -`, and writes a UDZO DMG.
 
@@ -66,7 +66,7 @@ On launch the app adds missing stock plugins, templates, locales, and library fi
 
 A person running the app does not need Homebrew, a system `ffmpeg`, or a system `magick`.
 
-- `bin/ffmpeg` and `bin/ffprobe` from the FFmpeg 7.1 build, with libx264 and the frei0r wrapper. `ffmpeg -encoders` lists `libx264` and `aac`.
+- `bin/ffmpeg` and `bin/ffprobe` from the FFmpeg 7.1 build, with libx264, libmp3lame, and the frei0r wrapper. `ffmpeg -encoders` lists `libx264`, `aac`, and `libmp3lame`. LAME 3.100 is linked statically (LGPL-2.0-only). The lame program is not shipped.
 - `bin/frei0r-1/`, including `nervous` and `colorize`. The app sets `FREI0R_PATH` there.
 - `bin/magick`, a static ImageMagick 7 with PNG and JPEG.
 - `bin/yt-dlp`, `bin/deno`, and `bin/vocoder` when their builds or checksums succeed.
@@ -81,7 +81,7 @@ The same pins are used on both operating systems. macOS `magick` is the source b
 
 | Tool | macOS | Linux | Version / commit | Licence | Source | When it is missing |
 | --- | --- | --- | --- | --- | --- | --- |
-| ffmpeg | bundled | bundled | n7.1.1, commit `db69d06eeeab4f46da15030a80d539efb4503ca8` | GPL-3.0-or-later | https://github.com/FFmpeg/FFmpeg | `ffmpeg missing. Looked in bundled <resource root>/bin then PATH then /opt/homebrew/bin and /usr/local/bin.` On Linux the Homebrew clause is omitted. If the binary exists but a stock encoder, codec, or filter is absent: `ffmpeg <path>: missing <list>.` |
+| ffmpeg | bundled | bundled | n7.1.1, commit `db69d06eeeab4f46da15030a80d539efb4503ca8`, libmp3lame via LAME 3.100 | GPL-3.0-or-later (LAME is LGPL-2.0-only) | https://github.com/FFmpeg/FFmpeg | `ffmpeg missing. Looked in bundled <resource root>/bin then PATH then /opt/homebrew/bin and /usr/local/bin.` On Linux the Homebrew clause is omitted. If the binary exists but a stock encoder, codec, or filter is absent: `ffmpeg <path>: missing <list>.` |
 | ffprobe | bundled | bundled | same FFmpeg build as ffmpeg | GPL-3.0-or-later | https://github.com/FFmpeg/FFmpeg | `ffprobe missing. Resolved: ffprobe` |
 | magick | bundled, static source build | bundled AppImage when `magick -version` works, otherwise external | 7.1.2-34. macOS commit `a0c4bf729a26a5c2feb28b0365b47a8db736078a` | ImageMagick License | macOS: https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34.tar.xz Linux: https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34-gcc-x86_64.AppImage | `magick missing. Resolved: magick` |
 | frei0r | bundled plugins | bundled plugins | tag v2.3.3, commit `cdeddc7553bbfdc446c61d1bfa6a51bcc029b4a8` | GPL-2.0-or-later. `nervous` is GPL-3.0-or-later | https://github.com/dyne/frei0r | No missing-tool sentence. Startup prints `FREI0R_PATH: <assembly dir>/bin/frei0r-1`. A missing plugin is ffmpeg's own filter error on that command. |

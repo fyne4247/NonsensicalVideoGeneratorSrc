@@ -418,3 +418,4 @@ dotnet-install.sh
 obj-desktopgl*/
 content/bin/DesktopGL/
 content/obj/DesktopGL/
+content/desktopgl-music/

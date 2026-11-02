@@ -37,7 +37,7 @@ From the repository root, on the Linux machine:
 sh tools/package/build-linux-package.sh "$HOME/nvg-linux-out"
 ```
 
-The script publishes `-c Release -r linux-x64 --self-contained -p:NvgPlatform=DesktopGL`, builds content with `tools/build-content-desktopgl.sh`, builds static x264, frei0r, and one FFmpeg 7.1 that includes `ffmpeg` and `ffprobe` with libx264, builds the vocoder, and downloads pinned yt-dlp, deno, and (when `magick -version` works) the official ImageMagick AppImage. Checksums, licences, and `SOURCE_OFFER.txt` are written into the archive. Steam files are removed from the publish output. On x86_64, a missing nasm configures x264 with `--disable-asm`.
+The script publishes `-c Release -r linux-x64 --self-contained -p:NvgPlatform=DesktopGL`, builds content with `tools/build-content-desktopgl.sh`, builds static x264, frei0r, static LAME 3.100 (LGPL-2.0-only), and one FFmpeg 7.1 that includes `ffmpeg` and `ffprobe` with libx264 and libmp3lame, builds the vocoder, and downloads pinned yt-dlp, deno, and (when `magick -version` works) the official ImageMagick AppImage. The build fails if `ffmpeg -encoders` does not list `libmp3lame`. Checksums, licences, and `SOURCE_OFFER.txt` are written into the archive. Steam files are removed from the publish output. On x86_64, a missing nasm configures x264 with `--disable-asm`. The lame program is not shipped.
 
 Output: `NonsensicalVideoGenerator-<version>-linux-x64.tar.gz`.
 
@@ -58,7 +58,7 @@ The same pins are used on both operating systems. macOS `magick` is the source b
 
 | Tool | macOS | Linux | Version / commit | Licence | Source | When it is missing |
 | --- | --- | --- | --- | --- | --- | --- |
-| ffmpeg | bundled | bundled | n7.1.1, commit `db69d06eeeab4f46da15030a80d539efb4503ca8` | GPL-3.0-or-later | https://github.com/FFmpeg/FFmpeg | `ffmpeg missing. Looked in bundled <resource root>/bin then PATH.` On macOS that continues ` then /opt/homebrew/bin and /usr/local/bin.` If the binary exists but a stock encoder, codec, or filter is absent: `ffmpeg <path>: missing <list>.` |
+| ffmpeg | bundled | bundled | n7.1.1, commit `db69d06eeeab4f46da15030a80d539efb4503ca8`, libmp3lame via LAME 3.100 | GPL-3.0-or-later (LAME is LGPL-2.0-only) | https://github.com/FFmpeg/FFmpeg | `ffmpeg missing. Looked in bundled <resource root>/bin then PATH.` On macOS that continues ` then /opt/homebrew/bin and /usr/local/bin.` If the binary exists but a stock encoder, codec, or filter is absent: `ffmpeg <path>: missing <list>.` |
 | ffprobe | bundled | bundled | same FFmpeg build as ffmpeg | GPL-3.0-or-later | https://github.com/FFmpeg/FFmpeg | `ffprobe missing. Resolved: ffprobe` |
 | magick | bundled, static source build | bundled AppImage when `magick -version` works, otherwise external | 7.1.2-34. macOS commit `a0c4bf729a26a5c2feb28b0365b47a8db736078a` | ImageMagick License | macOS: https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34.tar.xz Linux: https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34-gcc-x86_64.AppImage | `magick missing. Resolved: magick` |
 | frei0r | bundled plugins | bundled plugins | tag v2.3.3, commit `cdeddc7553bbfdc446c61d1bfa6a51bcc029b4a8` | GPL-2.0-or-later. `nervous` is GPL-3.0-or-later | https://github.com/dyne/frei0r | No missing-tool sentence. Startup prints `FREI0R_PATH: <assembly dir>/bin/frei0r-1`. A missing plugin is ffmpeg's own filter error on that command. |

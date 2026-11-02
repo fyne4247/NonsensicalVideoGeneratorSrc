@@ -14,8 +14,16 @@ natives. Workshop and achievements stay unavailable.
 
 - Source: https://github.com/FFmpeg/FFmpeg tag `n7.1.1`
 - Licence: GPL-3.0-or-later
-- One build (`tools/ffmpeg7/build-ffmpeg7.sh`) produces the shared libraries and `bin/ffmpeg` plus `bin/ffprobe`, with `--enable-gpl --enable-libx264 --enable-frei0r`.
-- Configure cannot see Homebrew. x264 is found through a pkg-config wrapper limited to the x264 prefix.
+- One build (`tools/ffmpeg7/build-ffmpeg7.sh`) produces the shared libraries and `bin/ffmpeg` plus `bin/ffprobe`, with `--enable-gpl --enable-libx264 --enable-libmp3lame --enable-frei0r`.
+- Configure cannot see Homebrew. x264 is found through a pkg-config wrapper limited to the x264 prefix. LAME is found from the static prefix below.
+- The package build fails if `ffmpeg -encoders` does not list `libmp3lame`.
+
+### LAME 3.100
+
+- Source tarball: `lame-3.100.tar.gz`, SHA-256 `ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e`
+- URL: https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
+- Licence: LGPL-2.0-only. The upstream `COPYING` is the GNU Library General Public License, version 2.
+- Static library (`tools/lame/build-lame.sh`, `--disable-frontend --disable-shared --disable-decoder`, `CFLAGS=-fPIC`). Linked into FFmpeg for the `libmp3lame` encoder. The lame program is not shipped. Position-independent code is required because FFmpeg's `libavcodec` is a shared library.
 
 ### x264
 
@@ -78,3 +86,4 @@ Bundled only when the upstream checksum matches and `file(1)` shows the architec
 
 - Steam
 - The x264 command-line program
+- The lame command-line program

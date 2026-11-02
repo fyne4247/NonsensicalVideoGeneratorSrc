@@ -74,7 +74,7 @@ DLL files available in `packages` are built beforehand to prevent .NET conflicts
 
 ## macOS and Linux
 
-Native macOS and Linux builds use MonoGame DesktopGL. They do not use Steam, and the package scripts do not upload anything. The Windows instructions above are unchanged. The macOS packages are osx-arm64 and osx-x64 disk images. The macOS and Linux packages include `ffmpeg`, `ffprobe` (libx264 and AAC), frei0r, and `magick`, so a render does not need those tools installed separately.
+Native macOS and Linux builds use MonoGame DesktopGL. They do not use Steam, and the package scripts do not upload anything. The Windows instructions above are unchanged. The macOS packages are osx-arm64 and osx-x64 disk images. The macOS and Linux packages include `ffmpeg`, `ffprobe` (libx264, AAC, and libmp3lame), frei0r, and `magick`, so a render does not need those tools installed separately.
 
 - macOS: [MACOS_BUILD_INSTRUCTIONS.md](MACOS_BUILD_INSTRUCTIONS.md)
 - Linux: [LINUX_BUILD_INSTRUCTIONS.md](LINUX_BUILD_INSTRUCTIONS.md)
