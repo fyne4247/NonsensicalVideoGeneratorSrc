@@ -799,3 +799,7 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 - Tests: `dotnet test tests/NvgMedia.Tests` and `tests/NvgPlatform.Tests` on the Mac; the package scripts' own audits. **No package rebuild for the owner yet.** Opus rebuilds once hard-13/14/15 merge. Headless only; no GUI unless Opus grants the slot (hard-13 has it).
 - Delete nothing, use temp HOME/NVG_DATA_DIR, no sudo/brew, 750 disk is tight (~7.7 GB): stop and report if it runs short.
 - 2026-11-02 ~01:10Z: the owner accidentally quit an NVG app window. Any exit around then was owner-initiated, not a crash.
+
+## Owner-initiated quit — 2026-11-02 01:10 UTC
+- Owner reports accidentally quitting the app. Notified Opus and workers hard-13/14/15 immediately. The matching exit must not be counted as a spontaneous crash; independently evidenced separate crashes still require investigation. No PID was supplied, so correlate the test instance/time rather than assuming all process exits are explained.
+- Preserve affected evidence; coordinate subsequent GUI launches and keep reproduction in disposable roots. No files other than this handoff changed.
