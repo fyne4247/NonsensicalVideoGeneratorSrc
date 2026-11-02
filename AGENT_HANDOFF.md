@@ -1088,3 +1088,36 @@ Acceptance: a direct `VideoHelper.LoadFromFile` on 0-byte and truncated copied f
 - Chooser: hard-19 saw the UI loop line and `osascript` running with the Library page live, and no osascript left afterward, but the panel never drew a window in that automated run, so a visible Cancel was not clicked. **Still needs a real look on the final package.**
 
 - hard-19 **approved**: branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-19`, final commit 4c7f56a, which contains hard-20 e976925. NvgMedia.Tests 29/29, NvgPlatform.Tests 112/112, DesktopGL builds. Publish callback back to original (dormant upstream bug noted, not fixed). Every load site goes through `VideoLoad.TryLoad`. Worker closed. BlogPage on Windows does not fall back when steam:// fails, unchanged behaviour.
+
+## Opus: consolidated review, completion round (trial bf93617)
+
+Branch status, all approved: hard-17 4f8d80b and hard-18 3986999 (already integrated at e30a6b5); hard-20 e976925 and hard-19 4c7f56a (hard-19 contains hard-20). **Sol: merge `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-19` at 4c7f56a.** Trial branch `flow-test/flow-1101-0201-final` at bf93617: no conflicts.
+
+| Check | Result |
+|---|---|
+| Mac NvgPlatform.Tests | 112/112 |
+| Mac NvgMedia.Tests | 29/29 |
+| Windows WindowsDX `dotnet build -c Debug` | **0 errors**, 5 warnings (known CS0649 PendingThumbnail) |
+| Windows patched DLL direct load, LoadProbe, 20 separate processes each | empty, truncated, good: all exit 0. Bad files raise FFmpegException with no crash; good decodes and closes. Output DLL hash 820F5469 matches |
+| Windows NvgPlatform.Tests | 98 pass, 10 skip, **4 fail** |
+| Windows NvgMedia.Tests | 17 pass, 7 skip, **5 fail** |
+
+Windows failures, 9, classified from their messages; none is an app failure on the WindowsDX path, but the tests are not portable and the suite is red there. **Sol needs to fix these: `[PosixFact]` or a real skip.**
+- ChooserTests (4): `/bin/chmod` missing (2), a POSIX path assertion against `C:\` (1), `Only_one_chooser_runs_and_cancel_kills_it` line 76 (1, Assert.False; inferred to be the same POSIX stub setup, not proven). The chooser path is DesktopGL-only.
+- MediaGuardTests (3): `ffprobe was not found`. The repo has no ffprobe.exe, and the VM has none on PATH.
+- VideoPlaybackLoadTests (2): `sh` missing; `retarget-ilonly.py` step failed in BuildProbe. The LoadProbe run above is the replacement evidence for the second.
+
+**Not verified:**
+- Windows real-window playback: no GUI run in the VM. Only build and direct load.
+- Real macOS chooser panel with visible Cancel, and owner's Shared-location hang: UI-loop line seen, panel never drew in automation. Needs the owner on a fresh package.
+- Fresh packages: **not built. Mac has 1.4 GiB free**; owner asked about removing round build dirs. Linux GUI, real Intel: not run.
+- Live yt-dlp and live internet download; live render save only through unit shape, plus earlier owner runs before this change.
+
+**Risks and behaviour changes:**
+- Windows without `bin\ffprobe.exe`: MediaGuard now rejects every video, including previews and the boot movie, where they used to play. Fine if installs ship it; confirm how Windows gets it. It isn't in git.
+- Same-name different file now becomes `name (2).ext` instead of replacing, for downloads and imports.
+- Generation skips invalid clips. Every load site catches open failure.
+- Original wipe: **still unexplained and open.** The new code closes off several candidates (`Load` deleting a differing file, library download delete-first, overwrite on publish), none proven as the cause.
+- Deferred, not fixed: temp.mp4 listing, menu music start/stop, EAGAIN on macOS (MediaPreview transcode stays), dormant publish-page bug, add-on lookup failures (looks like a transient OS lookup; not established).
+
+**Disclosure (mine):** my VM shutdown command on the 750 contained a stray `rm -f /dev/null`, run without sudo. It had no effect: checked afterwards, `/dev/null` is still the root-owned character device and works. It should not have been there. Also: the first VM start failed on KVM permission; `sudo -g kvm` was refused; owner logged in at the 750, which granted access. My first Windows script reported exit 0 although `dotnet` wasn't found; nothing had run, and I reran it properly. A stray swtpm from my failed start was stopped by PID. VM shut down; ollama running again (its state when I started). VM kept `nvgtest-bf93617`, `nvgprobe-*`, scripts; nothing deleted there.
