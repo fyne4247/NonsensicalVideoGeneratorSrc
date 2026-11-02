@@ -835,3 +835,10 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 - `ToolPaths.RequiredEncoders` = libx264, aac, libmp3lame; RequiredFilters adds the stock filters. NvgMedia 13/13, NvgPlatform 58/58.
 - **Integration defect (Sol):** the root `NonsensicalVideoGenerator.csproj` globs `tools/music/MeasureVorbisPeak/Program.cs` (and that helper's `obj/**/*.cs` once built). `dotnet build -p:NvgPlatform=DesktopGL` on hard-15's branch fails with CS0579 duplicate assembly attributes (7 errors, Opus-verified). Fix: add `<Compile Remove="tools/**" />` next to `<Compile Remove="tests/**" />`. Run the DesktopGL and Windows builds after.
 - Merge-overlap note: hard-15 also edited the shared `tests/NvgMedia.Tests/NvgMediaTests.cs` (+37) and `NvgMedia.Tests.csproj`. hard-14 also adds a csproj line, so expect a trivial csproj conflict: keep both.
+
+## Opus review: hard-14 final, APPROVED
+
+- Branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-14`, final commit `020c163b31117afd0c456e0473f9e7757e632971` (a419dcc, 020c163). Worker closed.
+- GUI check (disposable root, 40 × 60 s 60 fps h264 High with has_b_frames=2): Library page usable at 803 ms with the game thread still drawing while thumbnails encoded (first thumb at 590 ms, 12th at 2174 ms). Preview of an un-generated High clip played (cache/play transcode started in 254 ms, Baseline, has_b_frames=0). No decode errors. All 40 fixture files intact. One aborted first launch (missing DOTNET_ROOT, exited before a window), then a single real run.
+- NvgMedia 16/16, DesktopGL build 0 errors (at round 1).
+- Merge note: hard-14 and hard-15 both add a line to `tests/NvgMedia.Tests/NvgMedia.Tests.csproj`; keep both.
