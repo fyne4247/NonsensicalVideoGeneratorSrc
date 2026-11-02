@@ -727,3 +727,38 @@ Sol integrated hard-8/10/11 (+hard-9) on the team branch; code commit 7fceb31. T
 - Opus re-checked the arm64 DMG: sha256 matches. Its `libopenal.1.dylib` (sha256 85a1808a…) is identical to the one in hard-11's live-switch app. `alcReopenDeviceSOFT` is a local symbol, but AudioOutputFollower resolves it through `alcGetProcAddress` (AudioOutputFollower.cs:416), so that is fine.
 - Mac deps were reused from hard-7's prefixes (the rewriter matches by basename); Linux FFmpeg was rebuilt. A failed first Linux attempt left `/tmp/nvg-linux.ZKkidI` (562 MB) on 750; not deleted (owner approval needed). Free space: Mac ~4.6 GiB, 750 ~7.7 GB.
 - Owner by-ear test copy: `/tmp/nvg-owner-final/NonsensicalVideoGenerator.app` (ditto from the arm64 DMG, codesign OK), launcher `/tmp/nvg-owner-final/Run NVG final test.command`, temp data root `/tmp/nvg-owner-final/data`. Owner result: pending.
+
+## Owner by-ear test of the integrated build (7fceb31 code), 2026-11-01 ~18:46–19:03
+
+Works: sound, rendering, render playback in the in-app previewer (with sound).
+
+Broken (owner report):
+1. **Library media that hasn't been generated yet doesn't preview** (clicking a clip in the library shows no preview).
+2. **The library emptied after 3 generations.** Owner imported their own video files (import button). They became 12+ `kutar g-<sha256>.mp4` files in `library/video/materials`. After the 3rd generation, `library/video/materials` is **empty on disk** (dir mtime 19:01:39, same second as `cache/`). The owner deleted nothing. `DisabledMedia.json` lists 12 materials. "Disable Clips After Max Reached" (MaxUniqueClips 4) was on for some generations, but that path only adds to DisabledMedia (`LibraryData.SetEnabled`) and doesn't delete. `DeleteClipsAfterMaxUniqueClips` was false throughout. No "Deleting"/"Failed to delete" log line. Cause unknown. **Data-loss bug: top priority.**
+3. **The media picker is very slow and froze once.** The log shows one `ffmpeg ... thumbnail,scale=58:46 ... temp/thumb.bmp` process per library clip, re-run every time the picker opens (fixed output path, apparently synchronous).
+
+Evidence: `/tmp/nvg-owner-final/data/` (console.txt has 12978 lines, plus DisabledMedia.json, Options.json, library/, cache/). The app is not running. No crash report.
+
+Leads (Opus, unverified):
+- `PluginHandler.ValidateInput` checks the raw arg for `..` / `:\` **before** `ReplacePlaceholders`. Lua `FileDelete`/`FileMove` then `Path.Combine(jobDirectory, replaced)`. A placeholder that expands to a library path (`../.././library/video/materials/...`), or an absolute POSIX path (Path.Combine drops jobDirectory), reaches real library files. Plugin job dirs are later `Directory.Delete(jobPath, true)` (PluginHandler.cs:930, Generator.cs:376/750/1150). Check whether any plugin (stock/rave.lua uses `functions.fileMove`; recall.lua calls `addToLibrary`) or `Generator` moves a picked material into the job/temp dir.
+- `LibraryData.Load` order by `CreationTime`; `Organize` moves; `Generator` effects move `output.mp4` over `temp/<clip name>`.
+
+## Opus triage: owner-test bugs (hard-13, hard-14)
+
+Both are **hard**: unknown root cause and data loss (hard-13), UI threading/perf in an unfamiliar MonoGame page (hard-14). Scale is small. Two workers on disjoint files, in parallel.
+
+**hard-13 (Grok 4.7): library materials disappear after generation.**
+- Owns: `src/backend/Generator.cs`, `src/data/LibraryData.cs`, `src/data/DisabledMedia.cs`, `src/data/PluginHandler.cs`, `src/data/LibraryPathRules.cs`, new tests under `tests/NvgPlatform.Tests/` (new files only), plus one `<Compile Include>` line in `tests/NvgPlatform.Tests/NvgPlatform.Tests.csproj` if needed.
+- Must not touch: `src/pages/**`, `src/data/FramePlayer.cs`, `src/data/Cache.cs`, packaging, the main checkout, `/tmp/nvg-owner-final` (read-only evidence: copy it, never write there).
+- Do: reproduce first (temp HOME/NVG_DATA_DIR; import several of your own short mp4s into materials; set MaxUniqueClips 4 + Disable on; generate 3 times; `NVG_AUTO_GENERATE=1` may help). Find the exact code that removes files, and fix it so generation never deletes or moves library files unless `DeleteClipsAfterMaxUniqueClips` is true. Also make `ValidateInput` reject traversal and absolute paths **after** placeholder replacement for FileDelete/FileMove/FileCopy (Windows `..\`, POSIX `../` and leading `/`), with tests. Say whether Windows has the same bug.
+- Acceptance: a test that fails before and passes after; after 3 generations in a repro data root the materials are still on disk (list them); `dotnet test tests/NvgPlatform.Tests` and `tests/NvgMedia.Tests` green on the Mac; DesktopGL build 0 errors.
+- GUI: hard-13 has the GUI slot first. One app window at a time, volumes at 10%, quit via the AX menu.
+
+**hard-14 (Grok 4.7): library preview + slow/freezing media picker.**
+- Owns: `src/pages/LibraryPage.cs`, `src/data/FramePlayer.cs`, `src/data/Cache.cs`, any other `src/pages/**` file the picker lives in (tell Opus which before editing), new test files under `tests/NvgMedia.Tests/` (new files only, plus a csproj line if needed).
+- Must not touch: hard-13's files, packaging, the main checkout, `/tmp/nvg-owner-final`.
+- Do: (a) find why selecting a not-yet-generated library clip shows no preview on DesktopGL and fix it (compare the WINDOWSDX path). (b) Make the picker fast: generate thumbnails off the UI thread, cache them per file (key on path + mtime), write to unique temp paths instead of one shared `temp/thumb.bmp`, and never block the game thread waiting on ffmpeg. Windows behaviour must stay the same or improve.
+- Acceptance: with 40+ clips the picker opens without a hang (time it; report before/after); previews play for an un-generated clip; tests green; DesktopGL build 0 errors.
+- GUI: **only after hard-13 reports done** (Opus will tell you). Until then, headless work and tests only.
+
+Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dirs; no sudo/brew; report the commands run and pasted pass/fail summaries. Windows build check happens at Opus's trial merge.
