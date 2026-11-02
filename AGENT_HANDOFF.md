@@ -818,3 +818,11 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 - Reviewed: deletes only its own cache/partial files; `VideoCache` no longer remembers failed copies. NvgMedia 16/16; DesktopGL build 0 errors.
 - Commits: a419dcc, 020c163 (HEAD 020c163). Pending: a real GUI check with ~40 60 fps High B-frame clips once hard-13 releases the GUI slot.
 - Note: the root fix (platform-correct EAGAIN) would need a rebuilt VideoPlayback dll. Not attempted; the transcode costs one ffmpeg pass per un-generated B-frame clip on first preview.
+
+## Opus review: hard-13 round 1 (hardening OK, root cause NOT found → fix round)
+
+- Commit `93bb63e`. Approved as hardening: plugin FileCopy/FileDelete/FileMove now replace placeholders first and refuse paths that leave the job dir (`LibraryPathRules.StaysInsideJob`). `ApplyCalledMediaLimit` deletes only when the Delete flag parses true. NvgPlatform 61/61, NvgMedia 10/10, DesktopGL 0 errors. Its repro (4 tiny fixtures, 3 gens, Disable on, packaged pre-fix app) kept every file. Not owner-like.
+- Root cause still unknown. Opus's further evidence:
+  - `TotalMediaImported` went 0 → 109 between log lines 128 and 1930. The owner imported **~109 files**; only 41 distinct materials appear in ffmpeg lines.
+  - Data root born 18:54:28. `library/video/materials` born 18:55:28 (along with most library subdirs), then emptied with mtime/ctime **19:01:39**, the same second as `cache/` (autoplay `VideoCache.GetCachePath` of Render3 after "Saving to library..." at log line 12629). The dir inode survived, so the files were unlinked or renamed individually, not removed with the dir. Every later "Generation started" logs "No material files found in library".
+  - Ruled out by reading: `Generator` called-media loops (code correct; Delete false in every dump), the three `LibraryPage` Unload sites (per-file; confirmed or Shift-click), `SetAllEnabled`, `AddToLibrary`, `LibraryData.Load` duplicate check (would log), `Organize` (moves into other library folders; none gained files), `VideoCache`, `FramePlayer` extracted-frames cleanup, `Generator.CleanUp` (`./temp` only), workshop install.
