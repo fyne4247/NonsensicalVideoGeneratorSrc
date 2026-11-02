@@ -137,16 +137,17 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.video.Dispose();
                                             UserInterface.instance.video = null;
                                         }
-                                        string cachePath = VideoCache.GetCachePath(tempOutput);
-                                        UserInterface.instance.videoPath = cachePath;
-                                        UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
-                                        //UserInterface.instance.videoPlayer.IsLooped = true;
-                                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                                        Global.videoPlaying = true;
-                                        UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                        if (TryLoadGuarded(tempOutput))
+                                        {
+                                            //UserInterface.instance.videoPlayer.IsLooped = true;
+                                            UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                            Global.videoPlaying = true;
+                                            UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                            FramePlayer.canPlayBgMusic = false;
+                                        }
                                     }
-                                    FramePlayer.canPlayBgMusic = false;
-                                    Global.generator.progressText = L.T(0, "Video:StatusPlay");
+                                    if (Global.videoPlaying)
+                                        Global.generator.progressText = L.T(0, "Video:StatusPlay");
                                     if (ScreenManager.GetScreen<VideoScreen>("Video") == null
                                         || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
                                     {
@@ -472,7 +473,10 @@ namespace NonsensicalVideoGenerator
                         if (i == 0 && bool.Parse(SaveData.saveValues["IntrosEnabled"]))
                         {
                             // Add the intro.
+                            int calledBeforeIntro = LibraryData.calledMedia.Count;
                             string introPath = LibraryData.PickRandom(DefaultLibraryTypes.Intro, globalRandom);
+                            if (introPath != "" && SkipUnusableSource(introPath, calledBeforeIntro))
+                                introPath = "";
                             if(introPath != "")
                             {
                                 thisClip.intro = true;
@@ -491,7 +495,10 @@ namespace NonsensicalVideoGenerator
                             progress = Convert.ToInt32(i / maxClips, CultureInfo.InvariantCulture);
                             ConsoleOutput.WriteLine("Clipping... (" + (i + 1) + "/" + maxClips + ")", Color.Gray);
                             progressText = L.T(0, "Generate:StatusClipping", (i + 1).ToString(CultureInfo.InvariantCulture), maxClips.ToString(CultureInfo.InvariantCulture));
+                            int calledBeforeMaterial = LibraryData.calledMedia.Count;
                             string sourceToPick = LibraryData.PickRandom(DefaultLibraryTypes.Material, globalRandom);
+                            if (sourceToPick != "" && SkipUnusableSource(sourceToPick, calledBeforeMaterial))
+                                continue;
                             float source = -1;
                             if(sourceToPick == "")
                             {
@@ -521,7 +528,10 @@ namespace NonsensicalVideoGenerator
                             if(thisClip.rolledForOverlay)
                             {
                                 // Get random overlay.
+                                int calledBeforeOverlay = LibraryData.calledMedia.Count;
                                 overlayPath = LibraryData.PickRandom(DefaultLibraryTypes.Overlay, globalRandom);
+                                if (overlayPath != "" && SkipUnusableSource(overlayPath, calledBeforeOverlay))
+                                    overlayPath = "";
                                 if(overlayPath == "")
                                 {
                                     thisClip.rolledForOverlay = false;
@@ -531,19 +541,21 @@ namespace NonsensicalVideoGenerator
                                 ConsoleOutput.WriteLine(Path.GetFileName(sourceToPick) + " ("+i+") - " + (endOfClip - startOfClip) + " (" + startOfClip + " to " + endOfClip + ")", Color.Gray);
                             // Insert transition if rolled, ensure that there is a transition as well.
                             //bool alreadySnipped = false;
+                            string transitionPath = "";
                             if (!thisClip.rolledForOverlay && thisClip.rolledForTransition && LibraryData.GetFileCount(DefaultLibraryTypes.Transition) > 0)
                             {
-                                string transitionPath = LibraryData.PickRandom(DefaultLibraryTypes.Transition, globalRandom);
-                                if(transitionPath != "")
-                                {
-                                    progressText = L.T(0, "Generate:StatusApplyTransition", (i + 1).ToString(CultureInfo.InvariantCulture), maxClips.ToString(CultureInfo.InvariantCulture));
-                                    ConsoleOutput.WriteLine("Transitioning...", Color.Gray);
-                                    FFprobe_EncodeVideo(transitionPath, Path.Combine(temporaryDirectory, thisClip.name));
-                                }
-                                else
-                                {
+                                int calledBeforeTransition = LibraryData.calledMedia.Count;
+                                transitionPath = LibraryData.PickRandom(DefaultLibraryTypes.Transition, globalRandom);
+                                if (transitionPath != "" && SkipUnusableSource(transitionPath, calledBeforeTransition))
+                                    transitionPath = "";
+                                if (transitionPath == "")
                                     thisClip.rolledForTransition = false;
-                                }
+                            }
+                            if (!thisClip.rolledForOverlay && thisClip.rolledForTransition && transitionPath != "")
+                            {
+                                progressText = L.T(0, "Generate:StatusApplyTransition", (i + 1).ToString(CultureInfo.InvariantCulture), maxClips.ToString(CultureInfo.InvariantCulture));
+                                ConsoleOutput.WriteLine("Transitioning...", Color.Gray);
+                                FFprobe_EncodeVideo(transitionPath, Path.Combine(temporaryDirectory, thisClip.name));
                             }
                             else
                             {
@@ -669,6 +681,17 @@ namespace NonsensicalVideoGenerator
                 {
                     if (vidThreadWorker?.CancellationPending == true)
                         return;
+                    if (clips.Count == 0)
+                    {
+                        ConsoleOutput.WriteLine("No playable clips. Invalid media was left in place.", Color.Yellow);
+                        progressText = "No playable clips. Invalid media was left in place.";
+                        progressState = ProgressState.Failed;
+                        failureReason = progressText;
+                        generatorActive = false;
+                        if (timeoutWorker != null)
+                            timeoutWorker.CancelAsync();
+                        return;
+                    }
                     for(int i = 0; i < clips.Count; i++)
                     {
                         if (vidThreadWorker?.CancellationPending == true)
@@ -795,17 +818,17 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.video = null;
                                         }
                                         FramePlayer.canPlayBgMusic = true;
-                                        string cachePath = VideoCache.GetCachePath(tempOutput);
-                                        UserInterface.instance.videoPath = cachePath;
-                                        UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
-                                        //UserInterface.instance.videoPlayer.IsLooped = true;
-                                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                                        Global.videoPlaying = true;
-                                        UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                        if (TryLoadGuarded(tempOutput))
+                                        {
+                                            //UserInterface.instance.videoPlayer.IsLooped = true;
+                                            UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                            Global.videoPlaying = true;
+                                            UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                            FramePlayer.canPlayBgMusic = false;
+                                        }
                                     }
-                                    FramePlayer.canPlayBgMusic = false;
-                                    if (ScreenManager.GetScreen<VideoScreen>("Video") == null
-                                        || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
+                                    if (Global.videoPlaying && (ScreenManager.GetScreen<VideoScreen>("Video") == null
+                                        || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden))
                                     {
                                         ScreenManager.PushNavigation("Video");
                                         ScreenManager.GetScreen<VideoScreen>("Video")?.Show();
@@ -1020,12 +1043,20 @@ namespace NonsensicalVideoGenerator
             }
 
             // Pick a transition to use as the base for the effect test.
+            int calledBeforeEffect = LibraryData.calledMedia.Count;
             string sourceToPick = LibraryData.PickRandom(DefaultLibraryTypes.Transition, globalRandom);
+            if (sourceToPick != "" && SkipUnusableSource(sourceToPick, calledBeforeEffect))
+                sourceToPick = "";
 
             // Select a boot movie if no transition could be picked.
             if(sourceToPick == "" && PluginHandler.GetEnabledBootMovies().Count > 0)
             {
                 sourceToPick = PluginHandler.PickRandomBootMovie() ?? "";
+                if (sourceToPick != "" && !MediaGuard.CanOpen(sourceToPick, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string bootWhy))
+                {
+                    ConsoleOutput.WriteLine(bootWhy + " Left the file in place: " + sourceToPick, Color.Yellow);
+                    sourceToPick = "";
+                }
             }
 
             // Couldn't find a valid source
@@ -1170,17 +1201,17 @@ namespace NonsensicalVideoGenerator
                                 UserInterface.instance.video = null;
                             }
                             FramePlayer.canPlayBgMusic = true;
-                            string cachePath = VideoCache.GetCachePath(Path.Combine(temporaryDirectory, thisClip.name));
-                            UserInterface.instance.videoPath = cachePath;
-                            UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
-                            //UserInterface.instance.videoPlayer.IsLooped = true;
-                            UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                            Global.videoPlaying = true;
-                            UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                            if (TryLoadGuarded(Path.Combine(temporaryDirectory, thisClip.name)))
+                            {
+                                //UserInterface.instance.videoPlayer.IsLooped = true;
+                                UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                Global.videoPlaying = true;
+                                UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                FramePlayer.canPlayBgMusic = false;
+                            }
                         }
-                        FramePlayer.canPlayBgMusic = false;
-                        if (ScreenManager.GetScreen<VideoScreen>("Video") == null
-                            || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
+                        if (Global.videoPlaying && (ScreenManager.GetScreen<VideoScreen>("Video") == null
+                            || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden))
                         {
                             ScreenManager.PushNavigation("Video");
                             ScreenManager.GetScreen<VideoScreen>("Video")?.Show();
@@ -1189,13 +1220,30 @@ namespace NonsensicalVideoGenerator
                     else
                     {
                         // Open the video in the default video player.
-                        ProcessStartInfo startInfo = new()
+                        string effectOutput = Path.Combine(temporaryDirectory, thisClip.name);
+                        if (!MediaGuard.CanOpen(effectOutput, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string effectWhy))
                         {
-                            FileName = Path.Combine(temporaryDirectory, thisClip.name),
-                            UseShellExecute = true
-                        };
-                        Process.Start(startInfo);
+                            ConsoleOutput.WriteLine(effectWhy, Color.Red);
+                            progressText = L.T(0, "Video:StatusFailPlay");
+                            Global.videoPlaying = false;
+                        }
+                        else
+                        {
+                            ProcessStartInfo startInfo = new()
+                            {
+                                FileName = effectOutput,
+                                UseShellExecute = true
+                            };
+                            Process.Start(startInfo);
+                        }
                     }
+                }
+                if (progressText == L.T(0, "Video:StatusFailPlay"))
+                {
+                    progressState = ProgressState.Failed;
+                    failureReason = progressText;
+                    generatorActive = false;
+                    return;
                 }
                 if (effectTestThreadWorker?.CancellationPending == true)
                     return;
@@ -1526,7 +1574,10 @@ namespace NonsensicalVideoGenerator
                 // Add outro if enabled
                 if (bool.Parse(SaveData.saveValues["OutrosEnabled"]))
                 {
+                    int calledBeforeOutro = LibraryData.calledMedia.Count;
                     string outroPath = LibraryData.PickRandom(DefaultLibraryTypes.Outro, Global.generator.globalRandom);
+                    if (outroPath != "" && SkipUnusableSource(outroPath, calledBeforeOutro))
+                        outroPath = "";
                     if(outroPath == "")
                     {
                         ConsoleOutput.WriteLine("No outros found in library.", Color.Yellow);
@@ -1824,6 +1875,66 @@ namespace NonsensicalVideoGenerator
                 Global.generator.progressText = L.T(0, "Generate:StatusFailOverlay");
             }
         }
+        static bool TryLoadGuarded(string mediaPath)
+        {
+            if (UserInterface.instance == null)
+                return false;
+            string ffprobe = ToolPaths.Ffprobe(Global.useSystemFFprobe);
+            if (!MediaGuard.CanOpen(mediaPath, ffprobe, out string why))
+            {
+                ConsoleOutput.WriteLine(why, Color.Red);
+                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                Global.videoPlaying = false;
+                return false;
+            }
+            string cachePath = VideoCache.GetCachePath(mediaPath);
+            if (!MediaGuard.CanOpen(cachePath, ffprobe, out why))
+            {
+                ConsoleOutput.WriteLine(why, Color.Red);
+                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                Global.videoPlaying = false;
+                return false;
+            }
+            UserInterface.instance.videoPath = cachePath;
+            UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+            return true;
+        }
+
+        /// <summary>
+        /// Drops a picked library file that the player must not open.
+        /// The last calledMedia entry is removed so a later limit pass cannot delete it.
+        /// </summary>
+        static bool SkipUnusableSource(string path, int calledBefore)
+        {
+            string why;
+            bool reject = !MediaGuard.CanOpen(path, ToolPaths.Ffprobe(Global.useSystemFFprobe), out why);
+            if (!reject && !HasPositiveDuration(path))
+            {
+                reject = true;
+                why = "Cannot use media: duration is not a positive number.";
+            }
+            if (!reject)
+                return false;
+            if (LibraryData.calledMedia.Count > calledBefore && LibraryData.calledMedia.Count > 0)
+                LibraryData.calledMedia.RemoveAt(LibraryData.calledMedia.Count - 1);
+            ConsoleOutput.WriteLine(why + " Left the file in place: " + path, Color.Yellow);
+            return true;
+        }
+
+        static bool HasPositiveDuration(string path)
+        {
+            string ffprobe = ToolPaths.Ffprobe(Global.useSystemFFprobe);
+            if (!MediaGuard.TryReadProbe(ffprobe, "format=duration", path, out string stdout, out _))
+                return false;
+            string line = stdout.Trim();
+            int cut = line.IndexOfAny(new[] { '\r', '\n' });
+            if (cut >= 0)
+                line = line.Substring(0, cut).Trim();
+            if (!float.TryParse(line, NumberStyles.Float, CultureInfo.InvariantCulture, out float duration))
+                return false;
+            return duration > 0f;
+        }
+
         public void CleanUp()
         {
             if (Directory.Exists(temporaryDirectory))
