@@ -178,6 +178,18 @@ public class ToolPathsTests
             Assert.False(report.Ok);
             Assert.Contains("codec:pcm_s16le", report.Missing);
             Assert.Contains("filter:reverse", report.Missing);
+            Assert.Contains("encoder:libmp3lame", report.Missing);
+            Assert.Contains("filter:chorus", report.Missing);
+            Assert.Contains("filter:vibrato", report.Missing);
+            Assert.Contains("filter:hue", report.Missing);
+            Assert.Contains("filter:hflip", report.Missing);
+            Assert.Contains("filter:vflip", report.Missing);
+            Assert.Contains("filter:negate", report.Missing);
+            Assert.Contains("filter:apad", report.Missing);
+            Assert.Contains("filter:setsar", report.Missing);
+            Assert.Contains("filter:format", report.Missing);
+            Assert.Contains("filter:eq", report.Missing);
+            Assert.Contains("filter:frei0r", report.Missing);
             Assert.DoesNotContain("encoder:libx264", report.Missing);
             Assert.Contains("missing", report.Message);
         }
@@ -236,6 +248,31 @@ public class ToolPathsTests
             Directory.Delete(pathDir, true);
             Directory.Delete(brewDir, true);
         }
+    }
+
+    [Fact]
+    public void StockRequirementsIncludeLibmp3lameAndEffectFilters()
+    {
+        AssertTempEnv();
+        Assert.Contains("libmp3lame", ToolPaths.RequiredEncoders);
+        foreach (string name in new[]
+        {
+            "chorus", "vibrato", "hue", "hflip", "vflip", "negate", "apad",
+            "setsar", "format", "eq", "frei0r",
+        })
+        {
+            Assert.Contains(name, ToolPaths.RequiredFilters);
+        }
+        string encoders = string.Join("\n", ToolPaths.RequiredEncoders);
+        string codecs = string.Join("\n", ToolPaths.RequiredCodecs);
+        string filters = string.Join("\n", ToolPaths.RequiredFilters);
+        Assert.Empty(ToolPaths.MissingCapabilities(encoders, codecs, filters));
+        List<string> gaps = ToolPaths.MissingCapabilities(
+            "libx264\naac\n",
+            codecs,
+            filters);
+        Assert.Contains("encoder:libmp3lame", gaps);
+        Assert.DoesNotContain("encoder:aac", gaps);
     }
 
     void AssertTempEnv()

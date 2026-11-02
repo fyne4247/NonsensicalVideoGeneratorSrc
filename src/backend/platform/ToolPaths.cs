@@ -18,12 +18,14 @@ namespace NonsensicalVideoGenerator
     /// </summary>
     public static class ToolPaths
     {
-        public static readonly string[] RequiredEncoders = { "libx264", "aac" };
+        public static readonly string[] RequiredEncoders = { "libx264", "aac", "libmp3lame" };
         public static readonly string[] RequiredCodecs = { "h264", "aac", "pcm_s16le" };
         public static readonly string[] RequiredFilters =
         {
             "aresample", "concat", "reverse", "areverse", "setpts", "atempo",
             "scale", "fps", "volume", "amix", "overlay", "colorkey",
+            "chorus", "vibrato", "hue", "hflip", "vflip", "negate", "apad",
+            "setsar", "format", "eq", "frei0r",
         };
 
         static readonly Dictionary<string, ToolReport> FfmpegCache = new();
