@@ -15,5 +15,6 @@
     <Compile Include="..\..\src\backend\platform\ToolPaths.cs" Link="ToolPaths.cs" />
     <Compile Include="..\..\src\backend\platform\ProcessTree.cs" Link="ProcessTree.cs" />
     <Compile Include="..\..\src\backend\platform\FfmpegNative.cs" Link="FfmpegNative.cs" />
+    <Compile Include="..\..\src\data\MediaPreview.cs" Link="MediaPreview.cs" />
   </ItemGroup>
 </Project>
