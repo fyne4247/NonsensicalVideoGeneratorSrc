@@ -126,6 +126,25 @@ namespace NonsensicalVideoGenerator
             return IsUnderRoot(jobDirectory, full);
         }
 
+        /// <summary>
+        /// True when both paths name the same file after normalization.
+        /// Organize must not delete that file when a move onto itself fails.
+        /// </summary>
+        public static bool SameFile(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+                return false;
+            try
+            {
+                StringComparison compare = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), compare);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         static bool IsAbsolute(string path)
         {
             if (path.Length >= 1 && path[0] == '/')
