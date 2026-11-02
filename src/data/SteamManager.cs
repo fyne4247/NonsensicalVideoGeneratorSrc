@@ -9,6 +9,11 @@ namespace NonsensicalVideoGenerator
 
         public static void Initialize()
         {
+#if DESKTOPGL && !NVG_STEAM
+            ConsoleOutput.WriteLine("[Steamworks.NET] Steam integration off (NVG_STEAM unset).", Microsoft.Xna.Framework.Color.Transparent);
+            initialized = false;
+            return;
+#else
             try
             {
 #if DEBUG
@@ -68,6 +73,7 @@ namespace NonsensicalVideoGenerator
                 ConsoleOutput.WriteLine("[Steamworks.NET] Could not initialize SteamAPI: " + e.ToString());
                 return;
             }
+#endif
         }
 
         // OnApplicationQuit gets called too early to shutdown the SteamAPI.

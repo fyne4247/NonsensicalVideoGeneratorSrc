@@ -62,7 +62,7 @@ local useMusicLibrary = false
 
 -- Temp files
 local temp2 = "temp2.mp4"
-local frames = ".\\frames"
+local frames = "./frames"
 
 -- Variables
 local randomSound = ""
@@ -107,7 +107,7 @@ function StartGeneration(options, pluginSettings, functions)
     -- Apply effect
     if not classicRave then
         functions.folderCreate(frames)
-        functions.runFFmpeg("-i \"" .. options.inputVideo .. "\" -vf fps=" .. options.fps .. " \"" .. frames .. "\\frame%0d.png\"")
+        functions.runFFmpeg("-i \"" .. options.inputVideo .. "\" -vf fps=" .. options.fps .. " \"" .. frames .. "/frame%0d.png\"")
     else
         functions.runFFmpeg("-i \"" .. options.inputVideo .. "\" -filter_complex \"[0:v]frei0r=filter_name=nervous,frei0r=filter_name=colorize:filter_params=0[outv]\" -map \"[outv]\" -vcodec libx264 -crf 28 -preset ultrafast -ac 2 -c:a aac -b:a 160k -reset_timestamps 1 -shortest -fflags +genpts -y \"" .. temp2 .. "\"")
     end
@@ -138,15 +138,15 @@ function PostCommand(commandindex, outputresult, errorresult, options, pluginSet
                         break
                     end
                     -- Rename frame
-                    local flname = ".\\frames\\" .. fl
-                    local randomFrameName = ".\\frames\\" .. "_frame" .. tostring(randomFrame-1) .. ".png"
+                    local flname = "./frames/" .. fl
+                    local randomFrameName = "./frames/" .. "_frame" .. tostring(randomFrame-1) .. ".png"
                     functions.fileMove(flname, randomFrameName)
                 end
-                functions.runFFmpeg("-i \"" .. frames .. "\\_frame%0d.png\" -vf \"hue='H=PI*t: s=sin(PI*t)+1.5: enable=between(t,0,10)'\" -preset veryfast -y \"" .. frames .. "\\_frame%0d.png\"")
+                functions.runFFmpeg("-i \"" .. frames .. "/_frame%0d.png\" -vf \"hue='H=PI*t: s=sin(PI*t)+1.5: enable=between(t,0,10)'\" -preset veryfast -y \"" .. frames .. "/_frame%0d.png\"")
             end
         elseif commandindex == 2 then
             -- Invoke-Command -ScriptBlock {&$ffmpeg -i $frames\_%0d.png -i $video -map 0:v -map 1:a -preset veryfast -preset veryfast -y "$temp2"}
-            functions.runFFmpeg("-i \"" .. frames .. "\\_frame%0d.png\" -i \"" .. options.inputVideo .. "\" -map 0:v -map 1:a -vcodec libx264 -crf 28 -preset ultrafast -ac 2 -c:a aac -b:a 160k -reset_timestamps 1 -shortest -fflags +genpts -y \"" .. temp2 .. "\"")
+            functions.runFFmpeg("-i \"" .. frames .. "/_frame%0d.png\" -i \"" .. options.inputVideo .. "\" -map 0:v -map 1:a -vcodec libx264 -crf 28 -preset ultrafast -ac 2 -c:a aac -b:a 160k -reset_timestamps 1 -shortest -fflags +genpts -y \"" .. temp2 .. "\"")
         elseif commandindex == 3 then
             if randomSound == "" then
                 -- Invoke-Command -ScriptBlock {&$ffmpeg -i "$temp2" -filter_complex "[0:v]setpts=0.75*PTS[f];[0:v]setpts=0.5*PTS,reverse[fr];[f][fr]concat=n=2:v=1:a=0,format=yuv420p[v];[0:a]atempo=2.0[a1];[0:a]atempo=0.75,areverse[a2];[a1][a2]concat=n=2:v=0:a=1[a]" -map "[v]" -map "[a]" -shortest -preset veryfast -y "$output"}

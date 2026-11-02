@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
+#if WINDOWSDX
 using System.Windows;
+#endif
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
@@ -322,7 +324,11 @@ namespace NonsensicalVideoGenerator
                     // If syn unicode character, paste from clipboard
                     if (e.Character == '\u0016')
                     {
+#if WINDOWSDX
                         string clipboard = Clipboard.GetText();
+#else
+                        string clipboard = PlatformClipboard.GetText();
+#endif
                         if (clipboard.Length + Tooltip.Length <= maxChars)
                         {
                             // Validate each character
@@ -351,12 +357,20 @@ namespace NonsensicalVideoGenerator
                     // \u0003 is copy
                     else if (e.Character == '\u0003')
                     {
+#if WINDOWSDX
                         Clipboard.SetText(Tooltip);
+#else
+                        PlatformClipboard.SetText(Tooltip);
+#endif
                     }
                     // \u0018 is cut
                     else if (e.Character == '\u0018')
                     {
+#if WINDOWSDX
                         Clipboard.SetText(Tooltip);
+#else
+                        PlatformClipboard.SetText(Tooltip);
+#endif
                         Tooltip = "";
                     }
                     // \u0001 is select all, assume delete all

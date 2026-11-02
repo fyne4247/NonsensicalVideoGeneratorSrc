@@ -10,9 +10,11 @@ using System.Text.RegularExpressions;
 using MoonSharp.Interpreter;
 using Steamworks;
 using System.ComponentModel;
-using System.Net;
 using System.Globalization;
+using System.Threading;
+#if WINDOWSDX
 using System.Windows.Forms;
+#endif
 
 namespace NonsensicalVideoGenerator
 {
@@ -66,6 +68,12 @@ namespace NonsensicalVideoGenerator
     }
     public class Command
     {
+        static Command()
+        {
+            // A job-folder addon download can call Fetch before LibraryData is touched.
+            AtomicDownload.FileOpHook = NvgTrace.FileOp;
+        }
+
         public CommandType type;
         public string customCommand = "";
         public string? args;
@@ -77,15 +85,15 @@ namespace NonsensicalVideoGenerator
                 switch (type)
                 {
                     case CommandType.FFmpeg:
-                        return Global.useSystemFFmpeg ? "ffmpeg" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffmpeg.exe");
+                        return ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
                     case CommandType.FFprobe:
-                        return Global.useSystemFFprobe ? "ffprobe" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffprobe.exe");
+                        return ToolPaths.Ffprobe(Global.useSystemFFprobe);
                     case CommandType.Magick:
-                        return Global.useSystemMagick ? "magick" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "magick.exe");
+                        return ToolPaths.Magick(Global.useSystemMagick);
                     case CommandType.YtDlp:
-                        return Global.useSystemYtDlp ? "yt-dlp" : Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "yt-dlp.exe");
+                        return ToolPaths.YtDlp(Global.useSystemYtDlp);
                     case CommandType.Vocoder:
-                        return Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "vocoder.exe");
+                        return ToolPaths.Vocoder();
                     default:
                         return customCommand;
                 }
@@ -128,6 +136,22 @@ namespace NonsensicalVideoGenerator
             this.args = args;
             this.workingDirectory = workingDirectory;
         }
+        static bool AddonDownloadShouldStop()
+        {
+            if (Global.exiting)
+                return true;
+            if (Global.generator.vidThreadWorker?.CancellationPending == true)
+                return true;
+            if (Global.generator.effectTestThreadWorker?.CancellationPending == true)
+                return true;
+            return false;
+        }
+
+        static bool ProbeDownloadedMedia(string mediaPath)
+        {
+            return AtomicDownload.ProbeWithFfprobe(ToolPaths.Ffprobe(Global.useSystemFFprobe), mediaPath);
+        }
+
         public string[] Call()
         {
             if(type != CommandType.Download && type != CommandType.YtDlp)
@@ -137,18 +161,26 @@ namespace NonsensicalVideoGenerator
                 {
                     FileName = command,
                     Arguments = args,
-                    WorkingDirectory = workingDirectory ?? (Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "."),
+                    WorkingDirectory = workingDirectory ?? AppPaths.Writable,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
+#if DESKTOPGL
+                    // Native vocoder prompts on stdin when arguments are missing.
+                    // Close the pipe so it sees EOF instead of inheriting the app's stdin.
+                    RedirectStandardInput = true,
+#endif
                 };
                 Process process = new()
                 {
                     StartInfo = startInfo
                 };
                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                process.Start();
+                ProcessTree.StartTracked(process);
+#if DESKTOPGL
+                process.StandardInput.Close();
+#endif
                 string output = "";
                 string error = "";
                 process.OutputDataReceived += (sender, e) => {
@@ -167,7 +199,17 @@ namespace NonsensicalVideoGenerator
                 };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                process.WaitForExit();
+                // Only vocoder is bounded. A long ffmpeg or magick run must not be killed.
+                TimeSpan? budget = ProcessTree.TimeoutFor(startInfo.FileName);
+                if (budget is TimeSpan limit)
+                {
+                    if (!ProcessTree.WaitForExit(process, limit))
+                        ConsoleOutput.WriteLine("Command timed out and was killed: " + startInfo.FileName, Color.Red);
+                }
+                else
+                {
+                    process.WaitForExit();
+                }
                 return new string[] { output, error };
             }
             else
@@ -195,7 +237,8 @@ namespace NonsensicalVideoGenerator
                     // Validate subType
                     foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
                     {
-                        if (pair.Value == rootType + "\\" + subType)
+                        // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                        if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                         {
                             dummyType = pair.Key;
                             break;
@@ -215,7 +258,7 @@ namespace NonsensicalVideoGenerator
                     subType = "";
                 }
                 // If libraryRoot is not empty, download to library instead of job folder
-                string downloadPath = subType != "" ? Path.Join(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", rootType, subType) : rootType;
+                string downloadPath = subType != "" ? Path.Join(AppPaths.Writable, "library", rootType, subType) : rootType;
                 string combinedPath = Path.Combine(downloadPath, Path.GetFileName(url));
                 if(type == CommandType.YtDlp)
                 {
@@ -225,58 +268,106 @@ namespace NonsensicalVideoGenerator
                 combinedPath = Path.GetFullPath(combinedPath);
                 // create directory if it doesn't exist
                 Directory.CreateDirectory(Path.GetDirectoryName(combinedPath) ?? ".");
-                if (File.Exists(combinedPath))
+                // A non-empty file is the Lua "already exists" case. A 0-byte file is absent.
+                if (AtomicDownload.ExistsAsValidFile(combinedPath))
                 {
                     ConsoleOutput.WriteLine($"File {combinedPath} already exists.", Color.LightBlue);
                     return new string[] { "", "" };
                 }
+                var publishedPaths = new List<string>();
                 if(type == CommandType.Download)
                 {
                     // Download file
                     ConsoleOutput.WriteLine($"Downloading {url}" + (subType != "" ? " to library " + rootType + "\\" + subType : ""), Color.LightBlue);
-                    using (WebClient client = new WebClient())
+                    AtomicDownload.DownloadResult result = AtomicDownload.Fetch(new AtomicDownload.Request
                     {
-                        client.DownloadFile(url, combinedPath);
+                        Url = url,
+                        FinalPath = combinedPath,
+                        KeepValidExisting = true,
+                        ShouldStop = AddonDownloadShouldStop,
+                        Probe = ProbeDownloadedMedia,
+                    });
+                    if (result.AlreadyExisted)
+                    {
+                        ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
+                        return new string[] { "", "" };
                     }
+                    if (!result.Published)
+                    {
+                        ConsoleOutput.WriteLine("Failed to download: " + result.Detail, Color.Red);
+                        // WebClient.DownloadFile used to throw, which failed the addon call.
+                        throw new IOException("Failed to download: " + result.Detail);
+                    }
+                    publishedPaths.AddRange(result.PublishedPaths);
                 }
                 else if(type == CommandType.YtDlp)
                 {
-                    // Download YouTube video
-                    string ytdlp = Global.useSystemYtDlp ? "yt-dlp" : @".\bin\yt-dlp.exe";
-                    bool sound = rootType == "audio";
-                    // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
-                    /*
-                    WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
-                            Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
-                            To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
-                            If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
-                    */
-                    // Specifying where deno.exe is because it's inside of bin instead of the NVG's root directory
-                    ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:.\\bin\\deno.exe -o \"" + combinedPath + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
+                    // Download YouTube video into a staging directory the library scan skips.
+                    string destDir = Path.GetDirectoryName(combinedPath) ?? ".";
+                    AtomicDownload.SweepPartials(destDir);
+                    string staging = AtomicDownload.CreateStaging(destDir);
+                    try
                     {
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-                    Process process = new Process
+                        string template = AtomicDownload.StagingTemplate(staging);
+                        string ytdlp = ToolPaths.YtDlp(Global.useSystemYtDlp);
+                        string deno = ToolPaths.Deno(Global.useSystemYtDlp);
+                        bool sound = rootType == "audio";
+                        // Switching from --format mp4 to -t mp4 in yt-dlp to suppress the following warning:
+                        /*
+                        WARNING: "-f mp4" selects the best pre-merged mp4 format which is often not what's intended.
+                                Pre-merged mp4 formats are not available from all sites, or may only be available in lower quality.
+                                To prioritize the best h264 video and aac audio in an mp4 container, use "-t mp4" instead.
+                                If you know what you are doing and want a pre-merged mp4 format, use "-f b[ext=mp4]" instead to suppress this warning
+                        */
+                        // deno is resolved next to the app, then on PATH. Windows stays .\bin\deno.exe.
+                        ProcessStartInfo startInfo = new ProcessStartInfo(ytdlp, "--js-runtimes deno:" + deno + " " + AtomicDownload.SocketTimeoutArgument() + " -o \"" + template + "\" " + (sound ? "--extract-audio --audio-format mp3 " : "-t mp4 ") + url)
+                        {
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+#if DESKTOPGL
+                            RedirectStandardInput = true,
+#endif
+                        };
+                        Process process = new Process
+                        {
+                            StartInfo = startInfo
+                        };
+                        process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
+                        {
+                            if(e.Data != null)
+                                ConsoleOutput.WriteLine(e.Data, Color.Transparent);
+                        };
+                        process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
+                        {
+                            if(e.Data != null)
+                                ConsoleOutput.WriteLine(e.Data, Color.Red);
+                        };
+                        ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
+                        ProcessTree.StartTracked(process);
+#if DESKTOPGL
+                        process.StandardInput.Close();
+#endif
+                        process.BeginOutputReadLine();
+                        process.BeginErrorReadLine();
+                        AtomicDownload.DownloadResult result = AtomicDownload.FinishStaged(
+                            process, staging, destDir, AddonDownloadShouldStop, ProbeDownloadedMedia, null, default);
+                        if (result.AlreadyExisted)
+                        {
+                            ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
+                            return new string[] { "", "" };
+                        }
+                        if (!result.Published)
+                        {
+                            ConsoleOutput.WriteLine("Failed to download: " + result.Detail, Color.Red);
+                            return new string[] { "", "" };
+                        }
+                        publishedPaths.AddRange(result.PublishedPaths);
+                    }
+                    finally
                     {
-                        StartInfo = startInfo
-                    };
-                    process.OutputDataReceived += (object sender, DataReceivedEventArgs e) =>
-                    {
-                        if(e.Data != null)
-                            ConsoleOutput.WriteLine(e.Data, Color.Transparent);
-                    };
-                    process.ErrorDataReceived += (object sender, DataReceivedEventArgs e) =>
-                    {
-                        if(e.Data != null)
-                            ConsoleOutput.WriteLine(e.Data, Color.Red);
-                    };
-                    ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                    process.Start();
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-                    process.WaitForExit();
+                        AtomicDownload.DeleteStaging(staging);
+                    }
                 }
                 else
                 {
@@ -286,12 +377,17 @@ namespace NonsensicalVideoGenerator
                 // Load to library
                 if(dummyType != null)
                 {
-                    ConsoleOutput.WriteLine($"Loading {combinedPath} to library", Color.LightBlue);
-                    LibraryFile libfile = new(Path.GetFileNameWithoutExtension(combinedPath), Path.Join(rootType, subType, Path.GetFileName(combinedPath)), dummyType);
-                    if(LibraryData.Load(libfile) == null)
+                    foreach (string published in publishedPaths)
                     {
-                        ConsoleOutput.WriteLine($"Failed to load {combinedPath} to library", Color.Red);
-                        return new string[] { "", "" };
+                        ConsoleOutput.WriteLine($"Loading {published} to library", Color.LightBlue);
+                        // Pass the published file. It already sits in the library, and Load
+                        // must not copy that path onto itself.
+                        LibraryFile libfile = new(Path.GetFileNameWithoutExtension(published), published, dummyType);
+                        if(LibraryData.Load(libfile) == null)
+                        {
+                            ConsoleOutput.WriteLine($"Failed to load {published} to library", Color.Red);
+                            return new string[] { "", "" };
+                        }
                     }
                     Global.justCompletedRender = true;
                 }
@@ -497,16 +593,35 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
-            File.Copy(combinedSource, combinedDest);
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            // Library files are readable. Copying one into the job is how addons grab a clip.
+            if (!LibraryPathRules.CanCopyFrom(jobDirectory, LibraryRootPath(), replacedSource))
+            {
+                RefuseLibraryChange(replacedSource);
+                return;
+            }
+            // The destination must stay in the job. A library destination would overwrite stock media.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedDest);
+                return;
+            }
+            File.Copy(ResolvedPath(replacedSource), ResolvedPath(replacedDest));
         }
         // FileDelete for lua
         public static void FileDelete(string path)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
+                NvgTrace.FileOp("File.Delete", combinedPath);
                 File.Delete(combinedPath);
         }
         // FileMove for lua
@@ -514,10 +629,34 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            // Moving either side under the library removes or replaces a library file.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedSource)
+                || !LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedSource + " -> " + replacedDest);
+                return;
+            }
+            string combinedSource = ResolvedPath(replacedSource);
             if (File.Exists(combinedSource))
-                File.Move(combinedSource, combinedDest);
+                NvgTrace.FileOp("File.Move", combinedSource, ResolvedPath(replacedDest));
+                File.Move(combinedSource, ResolvedPath(replacedDest));
+        }
+        // Placeholder values such as ../.././library/... are invisible to ValidateInput.
+        // Destructive ops refuse anything under the library root, or outside the job.
+        static string LibraryRootPath()
+        {
+            return Path.GetFullPath(Path.Combine(AppPaths.Writable, "library"));
+        }
+        static string ResolvedPath(string replacedPath)
+        {
+            return LibraryPathRules.ResolveReplaced(jobDirectory, replacedPath) ?? Path.Combine(jobDirectory, replacedPath);
+        }
+        static void RefuseLibraryChange(string replacedPath)
+        {
+            ConsoleOutput.WriteLine("An addon attempted to modify a library file or a file outside the job.", Color.Red);
+            ConsoleOutput.WriteLine("Offending command: " + replacedPath, Color.Red);
         }
         // FileExists for lua
         public static bool FileExists(string path)
@@ -549,8 +688,15 @@ namespace NonsensicalVideoGenerator
         public static void WriteFile(string path, string contents)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
+                NvgTrace.FileOp("File.Delete", combinedPath);
                 File.Delete(combinedPath);
             File.WriteAllText(combinedPath, contents);
         }
@@ -570,19 +716,40 @@ namespace NonsensicalVideoGenerator
             return Global.generator.globalRandom.Next(2) == 0;
         }
         // FFmpeg installed for lua
+        static string lastFfmpegReport = "";
+        static bool warnedFfprobe;
+        static bool warnedMagick;
         public static bool FFmpegInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffmpeg.exe"));
+            ToolReport report = ToolPaths.InspectFfmpeg(Global.useSystemFFmpeg);
+            if (report.Message != lastFfmpegReport)
+            {
+                lastFfmpegReport = report.Message;
+                ConsoleOutput.WriteLine(report.Message, report.Ok ? Color.Transparent : Color.Yellow);
+            }
+            return report.Ok;
         }
         // FFprobe installed for lua
         public static bool FFprobeInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "ffprobe.exe"));
+            bool ok = ToolPaths.IsAvailable("ffprobe", Global.useSystemFFprobe);
+            if (!ok && !warnedFfprobe)
+            {
+                warnedFfprobe = true;
+                ConsoleOutput.WriteLine("ffprobe missing. Resolved: " + ToolPaths.Ffprobe(Global.useSystemFFprobe), Color.Yellow);
+            }
+            return ok;
         }
         // Magick installed for lua
         public static bool MagickInstalled()
         {
-            return File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "bin", "magick.exe"));
+            bool ok = ToolPaths.IsAvailable("magick", Global.useSystemMagick);
+            if (!ok && !warnedMagick)
+            {
+                warnedMagick = true;
+                ConsoleOutput.WriteLine("magick missing. Resolved: " + ToolPaths.Magick(Global.useSystemMagick), Color.Yellow);
+            }
+            return ok;
         }
         // GetRandomLibraryFile for lua
         public static string GetRandomLibraryFile(string rootType = "video", string subType = "materials")
@@ -596,7 +763,8 @@ namespace NonsensicalVideoGenerator
             // Validate subType
             foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
             {
-                if (pair.Value == rootType + "\\" + subType)
+                // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                 {
                     dummyType = pair.Key;
                     break;
@@ -626,7 +794,8 @@ namespace NonsensicalVideoGenerator
                 placeholders.Remove(placeholderKey);
             }
             string thepath = Path.Join("..", "..", file);
-            if (thepath != "..\\..")
+            // Empty pick is "..\.." on Windows and "../.." on macOS and Linux.
+            if (!LibraryPathRules.IsEmptyLibraryPick(file, thepath))
             {
                 ConsoleOutput.WriteLine(placeholderKey + " -> " + thepath);
                 placeholders.Add(placeholderKey, thepath);
@@ -676,7 +845,8 @@ namespace NonsensicalVideoGenerator
             // Validate subType
             foreach (KeyValuePair<LibraryType, string> pair in LibraryData.libraryPaths)
             {
-                if (pair.Value == rootType + "\\" + subType)
+                // Stock entries keep '\'; plugin paths from Path.Join use '/' on macOS and Linux.
+                if (LibraryPathRules.Matches(pair.Value, rootType, subType))
                 {
                     dummyType = pair.Key;
                     break;
@@ -709,7 +879,7 @@ namespace NonsensicalVideoGenerator
                 throw new Exception("Invalid rootType");
             }
             // Check library directory
-            string combinedPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", rootType, subType, ReplacePlaceholders(path));
+            string combinedPath = Path.Combine(AppPaths.Writable, "library", rootType, subType, ReplacePlaceholders(path));
             // Make sure folder exists
             if (!Directory.Exists(Path.GetDirectoryName(combinedPath)))
             {
@@ -756,9 +926,14 @@ namespace NonsensicalVideoGenerator
             return;
         }
         // OpenFilePicker for lua
-        // The arguments match some default windows file dialog options
+        // The arguments match some default windows file dialog options.
+        // This stays synchronous. OpenFiles waits on this thread until the chooser
+        // process exits. Lua calls it from the render job (recall.lua), not from
+        // the MonoGame update loop, so the window can keep drawing. A chooser that
+        // is already open is the one this call waits on. Only one runs at a time.
         public string OpenFilePicker(string title, string filter, bool multiselect = false)
         {
+#if WINDOWSDX
             // Show file dialog and return selected file path
             OpenFileDialog openFileDialog = new()
             {
@@ -779,6 +954,17 @@ namespace NonsensicalVideoGenerator
                 }
             }
             return "";
+#else
+            string[] picked = PlatformFileDialog.OpenFiles(title, filter, multiselect, jobDirectory);
+            if (picked.Length > 0 && !string.IsNullOrEmpty(picked[0]))
+            {
+                placeholderUniqueIndicator++;
+                string placeholderKey = "{File_" + placeholderUniqueIndicator + "}";
+                placeholders.Add(placeholderKey, picked[0]);
+                return placeholderKey;
+            }
+            return "";
+#endif
         }
         // SetStatusText for lua
         public void SetStatusText(string text)
@@ -859,14 +1045,15 @@ namespace NonsensicalVideoGenerator
         public PluginReturnValue Call(string video, bool runLua = false, int mouseX = 0, int mouseY = 0, string button = "")
         {
             // Create .\temp\job_%time%\
-            string jobPath = Path.Join(@".\temp\", "job_" + DateTime.UtcNow.ToString("HHmmssfff", CultureInfo.InvariantCulture));
+            string jobPath = Path.Combine(NvgPaths.Native(@".\temp"), "job_" + DateTime.UtcNow.ToString("HHmmssfff", CultureInfo.InvariantCulture));
             // Delete job path if it already exists
             if (Directory.Exists(jobPath))
             {
+                NvgTrace.FileOp("Directory.Delete", jobPath, true);
                 Directory.Delete(jobPath, true);
             }
             Directory.CreateDirectory(jobPath);
-            jobDirectory = Path.GetFullPath(jobPath) + @"\";
+            jobDirectory = Path.GetFullPath(jobPath) + Path.DirectorySeparatorChar;
             if (!runLua)
             {
                 // Copy video to job path as result.mp4
@@ -956,7 +1143,7 @@ namespace NonsensicalVideoGenerator
                             {
                                 if (runLua)
                                 {
-                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + @"\");
+                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + Path.DirectorySeparatorChar);
                                 }
                                 for (int i = 0; i < PluginHandler.commands.Count; i++)
                                 {
@@ -967,7 +1154,7 @@ namespace NonsensicalVideoGenerator
                                 DynValue result2 = luaScript.Call(luaScript.Globals["StopGeneration"], videoOptions, pluginSettings, functions);
                                 if (result2.Type == DataType.Boolean && result2.Boolean)
                                 {
-                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + @"\");
+                                    return new PluginReturnValue(true, Path.GetFileName(path), jobPath + Path.DirectorySeparatorChar);
                                 }
                                 else
                                 {
@@ -1283,8 +1470,8 @@ namespace NonsensicalVideoGenerator
     {
         public static List<LibraryCombinedType> queriedLibraryTypes = new();
         public static List<Plugin> plugins = new();
-        private static string pluginPath = @".\plugins";
-        public static string pluginSettingsPath = @".\PluginSettings.json";
+        private static string pluginPath = NvgPaths.Native(@".\plugins");
+        public static string pluginSettingsPath = NvgPaths.Native(@".\PluginSettings.json");
         public static List<Command> commands = new();
         public static PublishedFileId_t[]? subscribedItems;
         public static bool publishing = false;
@@ -1378,6 +1565,7 @@ namespace NonsensicalVideoGenerator
             if (pluginSettings == null)
             {
                 // Delete invalid settings file.
+                NvgTrace.FileOp("File.Delete", pluginSettingsPath);
                 File.Delete(pluginSettingsPath);
                 LoadPluginSettings();
                 return;
@@ -1514,6 +1702,7 @@ namespace NonsensicalVideoGenerator
                                     {
                                         ConsoleOutput.WriteLine($"Deleting Addon {basename} because it is not subscribed to.", Color.Red);
                                         // Remove entire directory, as it contains theme files.
+                                        NvgTrace.FileOp("Directory.Delete", path, true);
                                         Directory.Delete(path, true);
                                     }
                                 }
@@ -1573,6 +1762,7 @@ namespace NonsensicalVideoGenerator
                         // Delete files currently in plugin folder.
                         foreach (string file in Directory.GetFiles(itemPath))
                         {
+                            NvgTrace.FileOp("File.Delete", file);
                             File.Delete(file);
                         }
                         if(Directory.Exists(folder) == true)
@@ -1591,6 +1781,7 @@ namespace NonsensicalVideoGenerator
                                 }
                                 if(File.Exists(dest))
                                 {
+                                    NvgTrace.FileOp("File.Delete", dest);
                                     File.Delete(dest);
                                 }
                                 File.Copy(file, dest);
@@ -1612,6 +1803,14 @@ namespace NonsensicalVideoGenerator
         public static Callback<UserStatsReceived_t>? m_UserStatsReceived;
         public static void LoadWorkshop(bool silent = true)
         {
+#if DESKTOPGL
+            if (!SteamManager.initialized)
+            {
+                ConsoleOutput.WriteLine("[Steamworks.NET] Steam integration off; loading local addons.", Color.Transparent);
+                LoadPluginsThreaded(silent);
+                return;
+            }
+#endif
             updateSilently = silent;
             if(SteamUserStats.RequestCurrentStats())
             {
@@ -1807,6 +2006,15 @@ namespace NonsensicalVideoGenerator
                 GlobalContent.PlaySound("Error");
                 return false;
             }
+#if DESKTOPGL
+            // Launch switch for a temp-data generation with no window input.
+            // Unset, this does nothing. WindowsDX does not compile this block.
+            if (Environment.GetEnvironmentVariable("NVG_AUTO_GENERATE") == "1")
+            {
+                ConsoleOutput.WriteLine("NVG_AUTO_GENERATE starting generation.", Color.Yellow);
+                Global.generator.StartGeneration();
+            }
+#endif
             return true;
         }
         public static PluginReturnValue PickRandom(Random rnd, string video, AddonType addonType = AddonType.Effect)
@@ -1859,6 +2067,7 @@ namespace NonsensicalVideoGenerator
                 string temppath = Path.Combine(destDirName, file.Name);
                 if(File.Exists(temppath))
                 {
+                    NvgTrace.FileOp("File.Delete", temppath);
                     File.Delete(temppath);
                 }
                 file.CopyTo(temppath, false);
@@ -1909,6 +2118,7 @@ namespace NonsensicalVideoGenerator
                     // Ask user to pick a video file or use bootmovie.mp4 otherwise.
                     string bootMoviePath = Path.Combine("plugins", "user", "stock", "defaultlogo.mp4");
                     // Ask user to pick a video file.
+#if WINDOWSDX
                     OpenFileDialog openFileDialog = new()
                     {
                         Filter = L.T(0, "Addons:FilterBootMovies") + "|*.mp4",
@@ -1927,6 +2137,25 @@ namespace NonsensicalVideoGenerator
                         // Copy boot movie and rename it to %filename%.mp4 (only 6 seconds long)
                         Generator.SimpleClipVideo(bootMoviePath, Path.Combine(pluginPath, filename + ".mp4"), 0.0, 6.0);
                     }
+#else
+                    if (PlatformFileDialog.TryBegin(L.T(0, "Addons:BootMoviePicker"), "*.mp4", false, null, out PlatformFileDialog.FileChooser bootPick))
+                    {
+                        bootChooser = bootPick;
+                        bootPluginDir = pluginPath;
+                        bootFileName = filename;
+                        bootDefaultMovie = bootMoviePath;
+                        bootMoviePending = true;
+                        bootCopyRunning = false;
+                        bootCopyDone = false;
+                        bootCopyError = null;
+                        Global.generator.progressText = "Choosing a boot movie…";
+                        ConsoleOutput.WriteLine("Boot movie chooser is open off the update thread.", Color.Transparent);
+                    }
+                    else if (File.Exists(bootMoviePath))
+                    {
+                        Generator.SimpleClipVideo(bootMoviePath, Path.Combine(pluginPath, filename + ".mp4"), 0.0, 6.0);
+                    }
+#endif
                 }
                 // Replace "effect" with filename in the file.
                 string fileContents = File.ReadAllText(pluginFile);
@@ -1950,8 +2179,71 @@ namespace NonsensicalVideoGenerator
         public static Plugin? publishPlugin = null;
         public static WorkshopTag flags = WorkshopTag.None;
         public static string workshopIcon = "";
+#if DESKTOPGL
+        static PlatformFileDialog.FileChooser? bootChooser;
+        static string bootPluginDir = "";
+        static string bootFileName = "";
+        static string bootDefaultMovie = "";
+        static bool bootMoviePending;
+        static bool bootCopyRunning;
+        static volatile bool bootCopyDone;
+        static string? bootCopyError;
+        static PlatformFileDialog.FileChooser? iconChooser;
+        static bool workshopIconPending;
+        static string? suppliedWorkshopIcon;
+        static Plugin? pendingIconPlugin;
+        static WorkshopTag pendingIconFlags;
+        static bool pendingIconForce;
+#endif
+        public static bool ChooserPending
+        {
+            get
+            {
+#if DESKTOPGL
+                return bootMoviePending || workshopIconPending || bootCopyRunning;
+#else
+                return false;
+#endif
+            }
+        }
+        public static void PumpChooser()
+        {
+#if DESKTOPGL
+            PumpBootMovie();
+            PumpWorkshopIcon();
+#endif
+        }
         public static string? PickWorkshopIcon()
         {
+#if !WINDOWSDX
+            if (suppliedWorkshopIcon != null)
+            {
+                string chosen = suppliedWorkshopIcon;
+                suppliedWorkshopIcon = null;
+                return chosen;
+            }
+            if (workshopIconPending)
+                return null;
+            string templates = "templates";
+            try
+            {
+                templates = Path.GetFullPath("templates");
+            }
+            catch
+            {
+            }
+            if (!PlatformFileDialog.TryBegin(L.T(0, "Addons:WorkshopIconPicker"), "*.jpg;*.png;*.gif", false, templates, out PlatformFileDialog.FileChooser iconPick))
+            {
+                GlobalContent.PlaySound("Error");
+                ConsoleOutput.WriteLine(PlatformFileDialog.LastNotice ?? "No icon selected.", Color.Red);
+                Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+                return null;
+            }
+            iconChooser = iconPick;
+            workshopIconPending = true;
+            Global.generator.progressText = "Choosing a Workshop icon…";
+            return null;
+#else
             // Select jpg, png, or gif icon with file dialog
             OpenFileDialog fileDialog = new OpenFileDialog();
             fileDialog.Filter = L.T(0, "Addons:WorkshopIcon") + " (*.jpg, *.png, *.gif)|*.jpg;*.png;*.gif";
@@ -1968,7 +2260,103 @@ namespace NonsensicalVideoGenerator
             ConsoleOutput.WriteLine("No icon selected.", Color.Red);
             Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
             return null;
+#endif
         }
+#if DESKTOPGL
+        static void PumpBootMovie()
+        {
+            if (bootCopyDone)
+            {
+                bootCopyDone = false;
+                bootCopyRunning = false;
+                bootMoviePending = false;
+                bootChooser = null;
+                if (!string.IsNullOrEmpty(bootCopyError))
+                    ConsoleOutput.WriteLine("Boot movie was not clipped: " + bootCopyError, Color.Red);
+                bootCopyError = null;
+                if (Global.exiting)
+                    return;
+                Global.generator.progressText = "";
+                ReloadAddons();
+                return;
+            }
+            if (!bootMoviePending || bootCopyRunning || bootChooser == null)
+                return;
+            if (Global.exiting)
+            {
+                bootChooser.Cancel();
+                bootMoviePending = false;
+                bootChooser = null;
+                return;
+            }
+            if (!bootChooser.Finished)
+                return;
+            string source = bootDefaultMovie;
+            string[] files = bootChooser.Files;
+            if (files.Length > 0 && !string.IsNullOrEmpty(files[0]) && File.Exists(files[0]))
+                source = files[0];
+            string dest = Path.Combine(bootPluginDir, bootFileName + ".mp4");
+            bootChooser = null;
+            bootCopyRunning = true;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    if (!Global.exiting && File.Exists(source))
+                        Generator.SimpleClipVideo(source, dest, 0.0, 6.0);
+                }
+                catch (Exception ex)
+                {
+                    bootCopyError = ex.Message;
+                }
+                bootCopyDone = true;
+            });
+        }
+        static void PumpWorkshopIcon()
+        {
+            if (!workshopIconPending || iconChooser == null)
+                return;
+            if (Global.exiting)
+            {
+                iconChooser.Cancel();
+                workshopIconPending = false;
+                iconChooser = null;
+                pendingIconPlugin = null;
+                return;
+            }
+            if (!iconChooser.Finished)
+                return;
+            string[] files = iconChooser.Files;
+            iconChooser = null;
+            workshopIconPending = false;
+            Plugin? plugin = pendingIconPlugin;
+            WorkshopTag flags = pendingIconFlags;
+            bool force = pendingIconForce;
+            pendingIconPlugin = null;
+            if (plugin == null || files.Length == 0 || string.IsNullOrEmpty(files[0]) || !File.Exists(files[0]))
+            {
+                try
+                {
+                    GlobalContent.PlaySound("Error");
+                }
+                catch
+                {
+                }
+                ConsoleOutput.WriteLine("No icon selected.", Color.Red);
+                Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+                return;
+            }
+            suppliedWorkshopIcon = files[0];
+            PublishPlugin(plugin, flags, false, force);
+        }
+        static void ReloadAddons()
+        {
+            if (SteamManager.initialized)
+                LoadWorkshop(false);
+            else
+                LoadPluginsThreaded(false);
+        }
+#endif
         public static void PublishPlugin(Plugin plugin, WorkshopTag tagflags, bool skipIconParsing = false, bool forceIconForBootMovies = false)
         {
             if (publishing)
@@ -2001,7 +2389,7 @@ namespace NonsensicalVideoGenerator
                     }
                     else
                     {
-                        iconPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "temp", "publish_" + Path.GetFileNameWithoutExtension(plugin.path) + ".gif");
+                        iconPath = Path.Combine(AppPaths.Writable, "temp", "publish_" + Path.GetFileNameWithoutExtension(plugin.path) + ".gif");
                         Generator.GenerateGifPreview(movie, Path.Combine("templates", "bootmovie.png"), iconPath);
                     }
                 }
@@ -2011,6 +2399,15 @@ namespace NonsensicalVideoGenerator
                     iconPath = PickWorkshopIcon();
                 }
             }
+#if DESKTOPGL
+            if (workshopIconPending)
+            {
+                pendingIconPlugin = plugin;
+                pendingIconFlags = tagflags;
+                pendingIconForce = forceIconForBootMovies;
+                return;
+            }
+#endif
             bool failedCheck = false;
             // file must exist
             if(!File.Exists(iconPath) || iconPath == null)
@@ -2059,6 +2456,7 @@ namespace NonsensicalVideoGenerator
             string publishFile = Path.Combine(Path.GetDirectoryName(plugin.path) ?? "", ".publish");
             if(File.Exists(publishFile))
             {
+                NvgTrace.FileOp("File.Delete", publishFile);
                 File.Delete(publishFile);
             }
             if(createItemResult == null)
@@ -2256,7 +2654,7 @@ namespace NonsensicalVideoGenerator
                 contentPath = contentPath.Substring(1);
             }
             contentPath = contentPath.Replace("/", "\\");
-            // Get full path
+            // Steam publishes from the install tree on Windows. This path stays on the assembly directory.
             contentPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", contentPath);
             ConsoleOutput.WriteLine($"Content path: {contentPath}");
             cont = SteamUGC.SetItemContent(handle, contentPath);

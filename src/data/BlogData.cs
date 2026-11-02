@@ -32,6 +32,17 @@ namespace NonsensicalVideoGenerator
             " ",
             "%footer%"
         };
-        public static string Url { get; set; } = "steam://openurl/https://store.steampowered.com/news/app/2516360/view/%postid%?l=%locale%";
+        public static string SteamUrl { get; set; } = "steam://openurl/https://store.steampowered.com/news/app/2516360/view/%postid%?l=%locale%";
+
+        /// <summary>
+        /// Address the news button opens. Placeholders stay in the string.
+        /// Windows keeps steam://. DesktopGL uses https when Steam has no handler.
+        /// BlogPage starts that address with the shell. It does not launch Steam to test the link.
+        /// </summary>
+        public static string Url
+        {
+            get => PlatformUrl.Address(DataRoots.PlatformKind(), SteamUrl, PlatformUrl.SteamHandlerInstalled());
+            set => SteamUrl = value ?? "";
+        }
     }
 }
