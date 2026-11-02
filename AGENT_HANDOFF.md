@@ -942,3 +942,12 @@ Expected, not defects: spadinner and randomsound fail with `-i ""` because this 
 Owner also reports: UI size change works after restart. Preview, picker and menu-music results not yet reported.
 
 Next: same data root, full clip set, at least 3 finished renders, then quit normally.
+
+## Opus: owner retest #2, full-set session (in progress, 10:17 local)
+
+Status: **wipe gate stays OPEN; not reproduced so far.** About 250 clips imported by 10:04:22, Render1 to Render6 on disk, 243 clips in materials at 10:16:53. Root cause of the original wipe is still unknown, so no recurrence here does not explain it. The owner is still testing.
+
+- GONE lines: owner confirms deleting clips by hand, which covers the five at 10:04:29-10:04:59. That confirmation is general ("quite a few"), not per file, and the trace for that launch was lost (see below). The two at 10:11:28 and 10:11:32 are `LibraryData.Organize` moves called from `LibraryPage.Update` (materials to overlays and fear), per NVG_TRACE; they appear twice because two watchers were running.
+- Crash: SIGSEGV on the main thread in libavutil `av_opt_free` at 10:06:47 (`~/Library/Logs/DiagnosticReports/NonsensicalVideoGenerator-2026-11-02-100733.ips`, pid 13916). The owner believes they had clicked a 0-byte fear clip. Consistent with that, not reproduced, cause not proven. If confirmed, this raises the severity of the 0-byte download defect.
+- New owner report: starting a generation while a render is playing makes the menu music start and then stop. Not investigated in depth. `FramePlayer.Stop` at generation start and the music fade logic also exist on dev, so it may be pre-existing, but FramePlayer changed in the port and this has not been compared on Windows.
+- Test setup defect (mine): the app overwrites console.txt on launch, so relaunching at 10:07:19 erased the trace for the 10:03:39 launch. Saved logs: `/tmp/nvg-owner-r2/run1-logs/`, `/tmp/nvg-owner-r2/run2-logs-100730/`. Running capture since 10:07: `/tmp/nvg-owner-r2/console-capture-from-1007.log`.
