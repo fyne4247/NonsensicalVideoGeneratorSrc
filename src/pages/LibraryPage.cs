@@ -9,6 +9,7 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Globalization;
+using System.Threading;
 using MonoGame.Extended.VideoPlayback;
 
 namespace NonsensicalVideoGenerator
@@ -208,6 +209,9 @@ namespace NonsensicalVideoGenerator
                 ChangeVideos(spriteBatch.GraphicsDevice);
                 changed = false;
             }
+#if DESKTOPGL
+            PumpThumbnailUploads(spriteBatch.GraphicsDevice);
+#endif
             if(Global.justCompletedRender)
                 return; // changing
             // Store textures in local variable for performance
@@ -443,6 +447,19 @@ namespace NonsensicalVideoGenerator
         }
         // Thread for loading videos
         private BackgroundWorker? loadVideosThread;
+        int loadGeneration;
+        readonly object thumbnailGate = new();
+        readonly Queue<PendingThumbnail> pendingThumbnails = new();
+
+        struct PendingThumbnail
+        {
+            public int Page;
+            public int Slot;
+            public string Path;
+            public int Width;
+            public int Height;
+        }
+
         private void LoadVideosThread(object? sender, DoWorkEventArgs e)
         {
             if(e.Argument == null)
@@ -460,7 +477,11 @@ namespace NonsensicalVideoGenerator
             // Args: GraphicsDevice graphicsDevice, int currentPage
             object[] args = (object[])e.Argument;
             GraphicsDevice graphicsDevice = (GraphicsDevice)args[0];
+#if DESKTOPGL
+            _ = graphicsDevice;
+#endif
             int currentPage = (int)args[1];
+            int generation = args.Length > 2 ? (int)args[2] : 0;
             // Load videos
             int a, b;
             for (a = 0; a < 3; a++)
@@ -470,7 +491,7 @@ namespace NonsensicalVideoGenerator
                     try
                     {
                         // Check to make sure we're still on the same page
-                        if (currentPage != page)
+                        if (currentPage != page || generation != Volatile.Read(ref loadGeneration))
                             return;
                         // Cancelled?
                         if (loadVideosThread != null && loadVideosThread.CancellationPending)
@@ -484,41 +505,48 @@ namespace NonsensicalVideoGenerator
                             int texScale = int.Parse(SaveData.saveValues["VideoPlaybackScale"], CultureInfo.InvariantCulture);
                             int texWidth = 29 * texScale;
                             int texHeight = 23 * texScale;
+                            string source = LibraryData.GetLocalizedDefaultOutro(libraryFile.Path ?? "");
+                            string cacheDir = Path.Combine(AppPaths.Writable, "cache", "thumbs");
+                            string ffmpeg = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
+                            string kind = currentRootType == LibraryRootType.Audio ? MediaPreview.AudioKind
+                                : currentRootType == LibraryRootType.Image ? MediaPreview.ImageKind
+                                : MediaPreview.VideoKind;
+                            int seenGeneration = generation;
+                            int seenPage = currentPage;
+                            MediaPreview.ThumbnailResult thumb = MediaPreview.EnsureThumbnail(
+                                ffmpeg,
+                                source,
+                                cacheDir,
+                                texWidth,
+                                texHeight,
+                                kind,
+                                AppPaths.Writable,
+                                () => seenGeneration == Volatile.Read(ref loadGeneration) && seenPage == page);
+                            if (thumb.Cancelled || seenGeneration != Volatile.Read(ref loadGeneration) || seenPage != page)
+                                return;
+                            if (!thumb.Ok)
+                            {
+                                if (!string.IsNullOrEmpty(thumb.Error))
+                                    ConsoleOutput.WriteLine("Thumbnail failed: " + thumb.Error, Color.Red);
+                                continue;
+                            }
 #if DESKTOPGL
-                            Texture2D texture;
+                            // The game thread uploads. Invoke() from this worker waits on
+                            // the OpenGL thread and used to stall the picker.
+                            lock (thumbnailGate)
+                            {
+                                pendingThumbnails.Enqueue(new PendingThumbnail
+                                {
+                                    Page = seenPage,
+                                    Slot = position - (12 * seenPage),
+                                    Path = thumb.Path,
+                                    Width = texWidth,
+                                    Height = texHeight
+                                });
+                            }
 #else
                             Texture2D texture = new Texture2D(graphicsDevice, texWidth, texHeight);
-#endif
-                            // Generate video thumbnail using ffmpeg
-                            string tempBmp = Path.Combine(AppPaths.Writable, "temp", "thumb.bmp");
-                            Process bmpProcess = Generator.GenerateThumbnail(LibraryData.GetLocalizedDefaultOutro(libraryFile.Path), tempBmp, currentRootType);
-                            // Defer until process is done
-                            while (!bmpProcess.HasExited)
-                            {
-                                System.Threading.Thread.Sleep(100);
-                                // Check to make sure we're still on the same page
-                                if (currentPage != page)
-                                    return;
-                            }
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
-                                return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Load bitmap
-#if DESKTOPGL
-                            Color[] colorData = BmpThumbnail.Read(tempBmp, texWidth, texHeight);
-                            Texture2D uploaded = null!;
-                            GraphicsThread.Invoke(() =>
-                            {
-                                uploaded = new Texture2D(graphicsDevice, texWidth, texHeight);
-                                uploaded.SetData(colorData);
-                            });
-                            texture = uploaded;
-#else
-                            System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(tempBmp);
-                            // Convert bitmap to color data
+                            System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(thumb.Path);
                             Color[] colorData = new Color[texWidth * texHeight];
                             for (int i = 0; i < texWidth; i++)
                             {
@@ -533,24 +561,14 @@ namespace NonsensicalVideoGenerator
                             }
                             texture.SetData(colorData);
                             bitmap.Dispose();
-#endif
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
+                            if (seenGeneration != Volatile.Read(ref loadGeneration) || seenPage != page)
+                            {
+                                texture.Dispose();
                                 return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Delete temp file
-                            File.Delete(tempBmp);
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
-                                return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Update video players
-                            int pagelessPosition = position - (12 * page);
+                            }
+                            int pagelessPosition = position - (12 * seenPage);
                             videoPlayers.Add(pagelessPosition, texture);
+#endif
                         }
                     }
                     catch
@@ -559,24 +577,70 @@ namespace NonsensicalVideoGenerator
                     }
                 }
             }
-            // Done!
-            try
-            {
-                if(loadVideosThread != null)
-                    loadVideosThread.Dispose();
-            }
-            catch {}
-            loadVideosThread = null;
+            // Done. Do not Dispose this worker from inside DoWork, and do not
+            // clear the field if ChangeVideos already started the next one.
+            BackgroundWorker? self = loadVideosThread;
+            if (generation == Volatile.Read(ref loadGeneration))
+                Interlocked.CompareExchange(ref loadVideosThread, null, self);
         }
+#if DESKTOPGL
+        void PumpThumbnailUploads(GraphicsDevice graphicsDevice)
+        {
+            while (true)
+            {
+                PendingThumbnail item;
+                lock (thumbnailGate)
+                {
+                    if (pendingThumbnails.Count == 0)
+                        return;
+                    item = pendingThumbnails.Dequeue();
+                }
+                if (item.Page != page)
+                    continue;
+                try
+                {
+                    Color[] colorData = BmpThumbnail.Read(item.Path, item.Width, item.Height);
+                    if (item.Page != page)
+                        continue;
+                    Texture2D texture = new Texture2D(graphicsDevice, item.Width, item.Height);
+                    texture.SetData(colorData);
+                    if (item.Page != page)
+                    {
+                        texture.Dispose();
+                        continue;
+                    }
+                    if (videoPlayers.ContainsKey(item.Slot))
+                    {
+                        videoPlayers[item.Slot].Dispose();
+                        videoPlayers.Remove(item.Slot);
+                    }
+                    videoPlayers.Add(item.Slot, texture);
+                }
+                catch (Exception ex)
+                {
+                    ConsoleOutput.WriteLine("Thumbnail upload failed: " + ex.Message, Color.Red);
+                }
+            }
+        }
+#endif
         public void ChangeVideos(GraphicsDevice graphicsDevice)
         {
             try
             {
-                // Cancel previous thread
+                int generation = Interlocked.Increment(ref loadGeneration);
+                lock (thumbnailGate)
+                    pendingThumbnails.Clear();
+                // CancelAsync only. Dispose does not stop ffmpeg, and the next
+                // worker used to share temp/thumb.bmp with the one still running.
                 if (loadVideosThread != null)
                 {
-                    loadVideosThread.CancelAsync();
-                    loadVideosThread.Dispose();
+                    try
+                    {
+                        loadVideosThread.CancelAsync();
+                    }
+                    catch
+                    {
+                    }
                 }
                 // Clear video players
                 foreach (Texture2D texture in videoPlayers.Values)
@@ -588,7 +652,7 @@ namespace NonsensicalVideoGenerator
                 loadVideosThread = new BackgroundWorker();
                 loadVideosThread.DoWork += LoadVideosThread;
                 loadVideosThread.WorkerSupportsCancellation = true;
-                loadVideosThread.RunWorkerAsync(new object[] { graphicsDevice, page });
+                loadVideosThread.RunWorkerAsync(new object[] { graphicsDevice, page, generation });
             }
             catch(Exception e)
             {
@@ -600,6 +664,11 @@ namespace NonsensicalVideoGenerator
         }
         public bool Update(GameTime gameTime, bool handleInput)
         {
+#if DESKTOPGL
+            GraphicsDevice? uploadDevice = UserInterface.instance?.GraphicsDevice;
+            if (uploadDevice != null)
+                PumpThumbnailUploads(uploadDevice);
+#endif
             if(actionController.Update(gameTime, handleInput))
                 return true;
             if(!registered)
@@ -1128,6 +1197,11 @@ namespace NonsensicalVideoGenerator
                                                         UserInterface.instance.videoPath = "";
                                                         if (file.Type != null && file.Type.RootType == LibraryRootType.Video)
                                                         {
+#if DESKTOPGL
+                                                            // Transcode off this thread. FramePlayer.Update starts playback.
+                                                            Global.generator.progressText = L.T(0, "Video:StatusLoad");
+                                                            FramePlayer.PrepareLibraryPreview(LibraryData.GetLocalizedDefaultOutro(file.Path ?? ""));
+#else
                                                             string cachePath = VideoCache.GetCachePath(LibraryData.GetLocalizedDefaultOutro(file.Path));
                                                             UserInterface.instance.videoPath = cachePath;
                                                             UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
@@ -1137,6 +1211,7 @@ namespace NonsensicalVideoGenerator
                                                             UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                                                             FramePlayer.canPlayBgMusic = false;
                                                             Global.generator.progressText = L.T(0, "Video:StatusPlay");
+#endif
                                                         }
                                                         else
                                                         {

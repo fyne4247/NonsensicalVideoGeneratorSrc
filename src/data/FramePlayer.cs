@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Media;
 using System.Globalization;
+using System.Threading;
 using MonoGame.Extended.VideoPlayback;
 
 namespace NonsensicalVideoGenerator
@@ -252,8 +253,113 @@ namespace NonsensicalVideoGenerator
                 ConsoleOutput.WriteLine(e.Message);
             }
         }
+#if DESKTOPGL
+        static readonly object previewGate = new();
+        static int libraryPreviewGeneration;
+        static string? libraryPreviewPath;
+
+        /// <summary>
+        /// Queues a DesktopGL-safe copy of a library video. Update starts the player.
+        /// </summary>
+        public static void PrepareLibraryPreview(string sourcePath)
+        {
+            int gen;
+            lock (previewGate)
+            {
+                gen = ++libraryPreviewGeneration;
+                libraryPreviewPath = null;
+            }
+            string ffmpeg = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
+            string ffprobe = ToolPaths.Ffprobe(Global.useSystemFFprobe);
+            string cacheDir = Path.Combine(AppPaths.Writable, "cache", "play");
+            string writable = AppPaths.Writable;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                string playable = sourcePath;
+                try
+                {
+                    playable = MediaPreview.EnsurePlayable(ffmpeg, ffprobe, sourcePath, cacheDir, writable);
+                    if (!MediaPreview.IsInsideDirectory(playable, cacheDir))
+                        playable = VideoCache.GetCachePath(playable);
+                }
+                catch (Exception ex)
+                {
+                    ConsoleOutput.WriteLine("Library preview prepare failed: " + ex.Message, Color.Red);
+                    playable = sourcePath;
+                }
+                lock (previewGate)
+                {
+                    if (gen != libraryPreviewGeneration)
+                        return;
+                    libraryPreviewPath = playable;
+                }
+            });
+        }
+
+        static void CancelLibraryPreview()
+        {
+            lock (previewGate)
+            {
+                libraryPreviewGeneration++;
+                libraryPreviewPath = null;
+            }
+        }
+
+        static bool TryStartLibraryPreview()
+        {
+            string? ready;
+            lock (previewGate)
+            {
+                ready = libraryPreviewPath;
+                libraryPreviewPath = null;
+            }
+            if (string.IsNullOrEmpty(ready))
+                return false;
+            if (UserInterface.instance == null || UserInterface.instance.videoPlayer == null)
+            {
+                lock (previewGate)
+                {
+                    if (libraryPreviewPath == null)
+                        libraryPreviewPath = ready;
+                }
+                return false;
+            }
+            try
+            {
+                if (UserInterface.instance.video != null)
+                {
+                    UserInterface.instance.video.Dispose();
+                    UserInterface.instance.video = null;
+                }
+                UserInterface.instance.videoPath = ready;
+                UserInterface.instance.video = VideoHelper.LoadFromFile(ready);
+                UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                Global.videoPlaying = true;
+                canPlayBgMusic = false;
+                Global.generator.progressText = L.T(0, "Video:StatusPlay");
+                if (ScreenManager.GetScreen<VideoScreen>("Video") == null
+                    || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)
+                {
+                    ScreenManager.PushNavigation("Video");
+                    ScreenManager.GetScreen<VideoScreen>("Video")?.Show();
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ConsoleOutput.WriteLine("Library preview failed: " + ex.Message, Color.Red);
+                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                Global.videoPlaying = false;
+                return false;
+            }
+        }
+#endif
         public static bool Stop()
         {
+#if DESKTOPGL
+            CancelLibraryPreview();
+#endif
             try
             {
                 if(countWorker.IsBusy || progressWorker.IsBusy || worker.IsBusy)
@@ -517,7 +623,11 @@ namespace NonsensicalVideoGenerator
         {
             if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
             {
-                if(Global.videoPlaying && UserInterface.instance != null && UserInterface.instance.videoPlayer != null && UserInterface.instance.videoPath != "" && UserInterface.instance.videoPlayer.State == MediaState.Stopped)
+                bool startedLibraryPreview = false;
+#if DESKTOPGL
+                startedLibraryPreview = TryStartLibraryPreview();
+#endif
+                if(!startedLibraryPreview && Global.videoPlaying && UserInterface.instance != null && UserInterface.instance.videoPlayer != null && UserInterface.instance.videoPath != "" && UserInterface.instance.videoPlayer.State == MediaState.Stopped)
                 {
                     Stop();
                     canPlayBgMusic = false;
