@@ -1200,3 +1200,7 @@ Build b5008dbc, `/tmp/nvg-owner-r3`, real HOME.
 - **Pass (owner):** chooser opens in ~/Movies, Cancel works, console shows the UI-loop line while it was open. This closes the live-chooser gap for Mac arm64, pending the large import result. Fullscreen fills the screen.
 - **Bug, new from hard-19:** leaving fullscreen restores size and position (log: 1280x960 at 320,60) but not the title bar and window controls. Worker's check only read the client rect. Likely order: `IsBorderless=false` set while still fullscreen, needs re-asserting after `ApplyChanges`. Not confirmed. Check must prove the frame includes the title bar (earlier: 640x508 frame for 640x480 client).
 - **Bug, audio:** starting a render while a render is playing leaves the old video moving with its sound on, and menu music plays the whole render. Earlier in r2 the music started then stopped, so this may be a regression from this round; not established. Cause not confirmed; `FramePlayer.Stop` at generation start may allow music without stopping `videoPlayer`. **Owner decision: stop the old video when a render starts** (kinder to older and Intel Macs). Check all platforms, including Windows behaviour.
+
+## Opus: owner stops for the day (Codex limit)
+
+Owner confirmed Steam button and quit/reopen pass in retest #3, and asked to merge everything to staging and write a handoff. See `docs/HANDOFF-2026-11-02.md`.
