@@ -810,3 +810,11 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 - Defect: it overwrote the tracked `content/music/theme1/2/4.ogg` and `content/themes/halloween/music/theme1.ogg` against the correction. Fix round: restore them, generate derived headroom assets at build time with a provenance manifest (or apply headroom at load time), and test the derived output.
 - Granted: `src/backend/platform/ToolPaths.cs` (RequiredEncoders += libmp3lame; RequiredFilters += the stock filters) and the doc edits it already made (README platform section, MACOS/LINUX_BUILD_INSTRUCTIONS).
 - Loudness note for the owner check: plain gain drops theme1 from −12.3 to −21.8 LUFS (−9.5 dB) and halloween theme1 by −8.4 dB. After the change the tracks sit between −17 and −22 LUFS. The owner judges by ear whether that's too quiet.
+
+## Opus review: hard-14 round 1 (design approved; commit + GUI check pending)
+
+- Preview cause: the vendored `MonoGame.Extended.VideoPlayback.dll` (prebuilt binary, `packages/`) treats EAGAIN as the literal −11. On macOS EAGAIN is 35, so the first-packet `AVERROR(EAGAIN)` on clips with B-frames (h264 High, has_b_frames>0) kills the decode thread, and VideoScreen draws nothing. Renders are ultrafast, without B-frames, which is why they played. Fix (DesktopGL only): `MediaPreview.EnsurePlayable` plays the original when has_b_frames==0, and otherwise transcodes once, off-thread, to `cache/play` (`-bf 0` ultrafast). Windows click path unchanged.
+- Picker cause: one synchronous `Generator.GenerateThumbnail` per visible clip into a shared `temp/thumb.bmp` on every open; overlapping workers; and a DesktopGL `GraphicsThread.Invoke` that waits up to 15 s. Fix: `MediaPreview.EnsureThumbnail` caches under `cache/thumbs` keyed on path+mtime+length+size, writes unique partials, never blocks the game thread, and uploads on the game thread.
+- Reviewed: deletes only its own cache/partial files; `VideoCache` no longer remembers failed copies. NvgMedia 16/16; DesktopGL build 0 errors.
+- Pending: commits (uncommitted at review), and a real GUI check with ~40 60 fps High B-frame clips once hard-13 releases the GUI slot.
+- Note: the root fix (platform-correct EAGAIN) would need a rebuilt VideoPlayback dll. Not attempted; the transcode costs one ffmpeg pass per un-generated B-frame clip on first preview.
