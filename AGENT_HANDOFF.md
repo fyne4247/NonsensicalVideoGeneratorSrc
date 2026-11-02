@@ -1057,3 +1057,15 @@ Acceptance:
   - **Residual:** a file that probes OK can still SIGSEGV if avformat_open_input later fails; DLL unpatched. Guard covers missing, empty and unprobeable files only.
   - After leaving the Library page, a finished import is listed only when the page updates again. The files are safe on disk meanwhile.
   - Next: hard-19 starts after Sol merges this branch. Windows compile and the full suite wait for the trial merge.
+
+## Opus: hard-19 started; hard-20 added (vendored player assessment)
+
+hard-19 starts from e30a6b5 as planned. Line numbers moved: `UserInterface.cs:372`, `PluginsPage.cs:716`, `PluginHandler.cs` about 2131, 2166, 2625 (Lua picker at 953 stays synchronous). Added to hard-19: one proper attempt to prove the real chooser with the UI loop running, using the import control rather than an empty slot.
+
+**hard-20** (hard: native lifetime in a vendored binary, a wrong patch breaks playback everywhere). Requested by Sol, narrow scope. Runs in parallel with hard-19: no shared files.
+Owns: `packages/MonoGame.Extended.VideoPlayback/*`, new `tools/videoplayback/`, new test files and their csproj lines.
+Must not touch: anything under `src/` except by reporting a needed change. No renderer upgrade or rewrite.
+
+Stage 1, assess and report in your final message: where the DLL's source comes from (pdb paths, licence in `baseroot/MonoGame.Extended2-LICENSE.txt`, upstream repo and exact revision if findable), and whether the shipped binary matches it. Compare the options: rebuild from pinned source with a one-line fix, a scripted reproducible IL patch of the shipped binary, or a validated playback snapshot. Say plainly if a snapshot doesn't remove the failure (a file can pass and still fail to open).
+Stage 2, if a fix is feasible without other behaviour change, implement the smallest one: after a failed `avformat_open_input`, Dispose must not free the stale context. Must be reproducible from a script in the repo, with the input hash and output hash recorded. Do not fix anything else in this DLL; report the EAGAIN -11 versus macOS 35 defect with what a fix would take.
+Acceptance: a direct `VideoHelper.LoadFromFile` on 0-byte and truncated copied fixtures, bypassing MediaGuard, gives a managed exception rather than SIGSEGV, 20 cycles, in separate processes that report exit codes. good.mp4 still opens, decodes and disposes, 20 cycles, with the rest of NvgMedia.Tests passing. No leak claim without a measurement. Windows check is not yours: state what must be run there. If not feasible, say why with evidence and change nothing.
