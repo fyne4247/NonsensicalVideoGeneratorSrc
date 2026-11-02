@@ -214,10 +214,10 @@ public class VideoPlaybackLoadTests
             throw new InvalidOperationException("chmod failed for " + path);
     }
 
-    static string BuildProbe()
+    string BuildProbe()
     {
         string repo = RepoRoot();
-        string output = "/tmp/nvg-hard-20/probe";
+        string output = Path.Combine(env.Data, "probe");
         Directory.CreateDirectory(output);
         var start = new ProcessStartInfo
         {
