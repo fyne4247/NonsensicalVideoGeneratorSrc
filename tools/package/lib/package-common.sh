@@ -146,14 +146,15 @@ nvg_assert_no_removed_deps() {
 
 # Build FFmpeg 7 with a PATH that cannot see Homebrew.
 # $1 prefix  $2 scratch  $3 optional CC
-# $4 optional x264 prefix  $5 optional frei0r prefix
-# With both prefixes this is the shared libraries and the CLI, one build.
+# $4 optional x264 prefix  $5 optional frei0r prefix  $6 optional lame prefix
+# With the x264 prefix this is the shared libraries and the CLI, one build.
 nvg_build_ffmpeg() {
     prefix=$1
     scratch=$2
     cc=${3:-/usr/bin/cc}
     x264_prefix=${4:-}
     frei0r_prefix=${5:-}
+    lame_prefix=${6:-}
     (
         unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR || true
         unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS CPATH LIBRARY_PATH || true
@@ -167,13 +168,16 @@ nvg_build_ffmpeg() {
         if [ -n "$frei0r_prefix" ]; then
             export NVG_FREI0R_PREFIX="$frei0r_prefix"
         fi
+        if [ -n "$lame_prefix" ]; then
+            export NVG_LAME_PREFIX="$lame_prefix"
+        fi
         /bin/sh "$ROOT/tools/ffmpeg7/build-ffmpeg7.sh" "$prefix" "$scratch"
     )
 }
 
-# Static x264, frei0r plugins, then one FFmpeg build that links them.
+# Static x264, frei0r plugins, static LAME, then one FFmpeg build that links them.
 # $1 deps dir  $2 scratch dir  $3 CC  $4 CXX
-# Leaves $1/x264, $1/frei0r and $1/ffmpeg. A matching manifest skips a rebuild.
+# Leaves $1/x264, $1/frei0r, $1/lame and $1/ffmpeg. A matching manifest skips a rebuild.
 nvg_build_media_deps() {
     deps=$1
     scratch=$2
@@ -198,8 +202,17 @@ nvg_build_media_deps() {
         /bin/sh "$ROOT/tools/frei0r/build-frei0r.sh" "$deps/frei0r" "$scratch/frei0r"
     )
     rm -rf "$scratch/frei0r"
+    printf '==> LAME\n'
+    (
+        unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR DYLD_LIBRARY_PATH LD_LIBRARY_PATH || true
+        unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS || true
+        export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+        export CC="$cc"
+        /bin/sh "$ROOT/tools/lame/build-lame.sh" "$deps/lame" "$scratch/lame"
+    )
+    rm -rf "$scratch/lame"
     printf '==> FFmpeg 7 libraries and CLI\n'
-    nvg_build_ffmpeg "$deps/ffmpeg" "$scratch/ffmpeg" "$cc" "$deps/x264" "$deps/frei0r"
+    nvg_build_ffmpeg "$deps/ffmpeg" "$scratch/ffmpeg" "$cc" "$deps/x264" "$deps/frei0r" "$deps/lame"
     rm -rf "$scratch/ffmpeg"
 }
 
@@ -265,7 +278,8 @@ nvg_build_vocoder() {
 
 # Globals set by the package script: NVG_VERSION PLATFORM_LABEL FFMPEG_TAG
 # FFMPEG_COMMIT FFMPEG_CONFIGURE X264_COMMIT X264_ASM FREI0R_TAG FREI0R_COMMIT
-# VOCODER_COMMIT YTDLP_RECORD DENO_RECORD MAGICK_RECORD OMITTED_RECORD
+# LAME_VERSION LAME_SHA VOCODER_COMMIT YTDLP_RECORD DENO_RECORD MAGICK_RECORD
+# OMITTED_RECORD
 nvg_write_third_party() {
     dest=$1
     {
@@ -278,7 +292,8 @@ nvg_write_third_party() {
         printf -- '- Commit: %s\n' "$FFMPEG_COMMIT"
         printf -- '- Source: https://github.com/FFmpeg/FFmpeg\n'
         printf -- '- Licence: GPL-3.0-or-later\n'
-        printf -- '- Built by tools/ffmpeg7/build-ffmpeg7.sh (%s). One build produces the shared libraries and bin/ffmpeg plus bin/ffprobe, linked with the static x264 below and the frei0r wrapper. Configure cannot see Homebrew libraries.\n' "$FFMPEG_CONFIGURE"
+        printf -- '- Built by tools/ffmpeg7/build-ffmpeg7.sh (%s). One build produces the shared libraries and bin/ffmpeg plus bin/ffprobe, linked with the static x264 and static LAME below and the frei0r wrapper. Configure cannot see Homebrew libraries.\n' "$FFMPEG_CONFIGURE"
+        printf -- '- libmp3lame is required. The package build fails if ffmpeg -encoders does not list it.\n'
         printf -- '- Licence text: ThirdParty/ffmpeg/LICENSE.GPLv3 (also FFmpeg-LICENSE.txt from the app tree)\n'
         printf -- '- Files: lib/libavcodec.61.dylib or lib/libavcodec.so.61, and bin/ffmpeg, bin/ffprobe\n\n'
         printf '## x264\n\n'
@@ -288,6 +303,14 @@ nvg_write_third_party() {
         printf -- '- Built by tools/x264/build-x264.sh as a static PIC library (--disable-cli). It is linked into the FFmpeg libraries. The x264 program is not shipped.\n'
         printf -- '- Assembly: %s\n' "$X264_ASM"
         printf -- '- Licence text: ThirdParty/x264/COPYING\n\n'
+        printf '## LAME\n\n'
+        printf -- '- Version: %s\n' "$LAME_VERSION"
+        printf -- '- SHA-256: %s\n' "$LAME_SHA"
+        printf -- '- Source: https://sourceforge.net/projects/lame/files/lame/%s/\n' "$LAME_VERSION"
+        printf -- '- Tarball: https://downloads.sourceforge.net/project/lame/lame/%s/lame-%s.tar.gz\n' "$LAME_VERSION" "$LAME_VERSION"
+        printf -- '- Licence: LGPL-2.0-only. The upstream text is the GNU Library General Public License, version 2.\n'
+        printf -- '- Built by tools/lame/build-lame.sh as a static library (--disable-frontend --disable-shared --disable-decoder, CFLAGS=-fPIC). It is linked into FFmpeg so libmp3lame can write MP3. The lame program is not shipped.\n'
+        printf -- '- Licence text: ThirdParty/lame/COPYING\n\n'
         printf '## frei0r\n\n'
         printf -- '- Tag: %s\n' "$FREI0R_TAG"
         printf -- '- Commit: %s\n' "$FREI0R_COMMIT"
@@ -322,11 +345,15 @@ nvg_write_source_offer() {
         printf 'FFmpeg %s\n' "$FFMPEG_TAG"
         printf '  commit: %s\n' "$FFMPEG_COMMIT"
         printf '%s\n' "  https://github.com/FFmpeg/FFmpeg/archive/refs/tags/$FFMPEG_TAG.tar.gz"
-        printf '%s\n\n' "  licence: GPL-3.0-or-later (--enable-gpl --enable-version3 --enable-libx264 --enable-frei0r)"
+        printf '%s\n\n' "  licence: GPL-3.0-or-later (--enable-gpl --enable-version3 --enable-libx264 --enable-libmp3lame --enable-frei0r)"
         printf '%s\n' "x264"
         printf '  commit: %s\n' "$X264_COMMIT"
         printf '%s\n' "  https://code.videolan.org/videolan/x264/-/archive/$X264_COMMIT/x264-$X264_COMMIT.tar.gz"
         printf '%s\n\n' "  licence: GPL-2.0-or-later. Static library linked into FFmpeg. The x264 CLI is not shipped."
+        printf 'LAME %s\n' "$LAME_VERSION"
+        printf '  sha256: %s\n' "$LAME_SHA"
+        printf '  %s\n' "https://downloads.sourceforge.net/project/lame/lame/$LAME_VERSION/lame-$LAME_VERSION.tar.gz"
+        printf '%s\n\n' "  licence: LGPL-2.0-only. Static library linked into FFmpeg for the libmp3lame encoder. The lame CLI is not shipped."
         printf 'frei0r %s\n' "$FREI0R_TAG"
         printf '  commit: %s\n' "$FREI0R_COMMIT"
         printf '%s\n' "  https://github.com/dyne/frei0r/archive/refs/tags/$FREI0R_TAG.tar.gz"

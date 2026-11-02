@@ -11,7 +11,8 @@
 #
 # When NVG_X264_PREFIX is set, this is one build for the shared libraries
 # and the ffmpeg/ffprobe programs: --enable-gpl --enable-libx264, linked
-# against that static x264. When NVG_FREI0R_PREFIX is set, the frei0r
+# against that static x264. When NVG_LAME_PREFIX is set, --enable-libmp3lame
+# links the static LAME library. When NVG_FREI0R_PREFIX is set, the frei0r
 # filter wrapper is enabled and looks for frei0r.h there. The plugins
 # themselves are loaded at runtime from FREI0R_PATH.
 # Needs git, cc and make. pkg-config is required only for libx264.
@@ -47,11 +48,17 @@ OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
 
 X264_PIN=""
 FREI0R_PIN=""
+LAME_PIN=""
 if [ -n "${NVG_X264_PREFIX:-}" ] && [ -f "$NVG_X264_PREFIX/NVG-X264.txt" ]; then
     X264_PIN=$(sed -n 's/^commit=//p' "$NVG_X264_PREFIX/NVG-X264.txt")
 fi
 if [ -n "${NVG_FREI0R_PREFIX:-}" ] && [ -f "$NVG_FREI0R_PREFIX/NVG-FREI0R.txt" ]; then
     FREI0R_PIN=$(sed -n 's/^commit=//p' "$NVG_FREI0R_PREFIX/NVG-FREI0R.txt")
+fi
+if [ -n "${NVG_LAME_PREFIX:-}" ] && [ -f "$NVG_LAME_PREFIX/NVG-LAME.txt" ]; then
+    LAME_PIN=$(sed -n 's/^version=//p' "$NVG_LAME_PREFIX/NVG-LAME.txt")
+    LAME_SHA=$(sed -n 's/^sha256=//p' "$NVG_LAME_PREFIX/NVG-LAME.txt")
+    LAME_PIN="$LAME_PIN:$LAME_SHA"
 fi
 
 ASM_FLAG=""
@@ -90,7 +97,7 @@ fi
 
 JOBS=${NVG_JOBS:-4}
 
-FFMPEG_SIGNATURE="tag=$FFMPEG_TAG arch=$target_arch x264=${X264_PIN:-none} frei0r=${FREI0R_PIN:-none} asm=$ASM_FLAG"
+FFMPEG_SIGNATURE="tag=$FFMPEG_TAG arch=$target_arch x264=${X264_PIN:-none} frei0r=${FREI0R_PIN:-none} lame=${LAME_PIN:-none} asm=$ASM_FLAG"
 if [ -f "$OUTPUT_DIR/NVG-FFMPEG.txt" ] && grep -F -q "signature=$FFMPEG_SIGNATURE" "$OUTPUT_DIR/NVG-FFMPEG.txt"; then
     if [ -e "$OUTPUT_DIR/lib/libavcodec.61.dylib" ] || [ -e "$OUTPUT_DIR/lib/libavcodec.so.61" ]; then
         if [ -z "${NVG_X264_PREFIX:-}" ] || [ -x "$OUTPUT_DIR/bin/ffmpeg" ]; then
@@ -116,6 +123,7 @@ COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
 PROGRAM_FLAGS="--disable-programs"
 X264_FLAGS=""
 FREI0R_FLAGS=""
+LAME_FLAGS=""
 EXTRA_CFLAGS=""
 CONFIGURE_NOTE="--enable-shared --disable-static --disable-programs --enable-gpl --enable-version3 --enable-rpath"
 if [ -n "${NVG_X264_PREFIX:-}" ]; then
@@ -136,15 +144,24 @@ if [ -n "${NVG_FREI0R_PREFIX:-}" ]; then
     EXTRA_CFLAGS="-I$NVG_FREI0R_PREFIX/include"
     CONFIGURE_NOTE="$CONFIGURE_NOTE --enable-frei0r"
 fi
+if [ -n "${NVG_LAME_PREFIX:-}" ]; then
+    if [ ! -f "$NVG_LAME_PREFIX/include/lame/lame.h" ] || [ ! -f "$NVG_LAME_PREFIX/lib/libmp3lame.a" ]; then
+        echo "error: $NVG_LAME_PREFIX has no static libmp3lame" >&2
+        exit 1
+    fi
+    LAME_FLAGS="--enable-libmp3lame"
+    EXTRA_CFLAGS="${EXTRA_CFLAGS:+$EXTRA_CFLAGS }-I$NVG_LAME_PREFIX/include"
+    EXTRA_LDFLAGS="-L$NVG_LAME_PREFIX/lib"
+    CONFIGURE_NOTE="$CONFIGURE_NOTE --enable-libmp3lame"
+fi
 
 # configure reads --cc, not the CC environment variable. Without this it
 # runs `gcc`, which on an arm64 Mac links arm64 and rejects an x86_64 libx264.
 CC_FLAG="--cc=$CC"
 HOST_CC_FLAG=""
-EXTRA_LDFLAGS=""
 if [ -n "$ARCH_FLAG" ]; then
     EXTRA_CFLAGS="${EXTRA_CFLAGS:+$EXTRA_CFLAGS }-arch $target_arch"
-    EXTRA_LDFLAGS="-arch $target_arch"
+    EXTRA_LDFLAGS="${EXTRA_LDFLAGS:+$EXTRA_LDFLAGS }-arch $target_arch"
     HOST_CC_FLAG="--host-cc=/usr/bin/cc"
     CONFIGURE_NOTE="$CONFIGURE_NOTE $ARCH_FLAG --extra-cflags=-arch $target_arch --extra-ldflags=-arch $target_arch"
 fi
@@ -204,6 +221,7 @@ echo "==> configuring $FFMPEG_TAG ($COMMIT) prefix $OUTPUT_DIR"
         $PROGRAM_FLAGS \
         $X264_FLAGS \
         $FREI0R_FLAGS \
+        $LAME_FLAGS \
         $ASM_FLAG \
         $ARCH_FLAG \
         ${EXTRA_CFLAGS:+--extra-cflags="$EXTRA_CFLAGS"} \
@@ -222,7 +240,9 @@ make -C "$SRC_DIR" install
     echo "arch=$target_arch"
     echo "source=$FFMPEG_REPO"
     echo "signature=$FFMPEG_SIGNATURE"
-    if [ -n "${NVG_X264_PREFIX:-}" ]; then
+    if [ -n "${NVG_X264_PREFIX:-}" ] && [ -n "${NVG_LAME_PREFIX:-}" ]; then
+        echo "note=One GPL build: shared libraries plus bin/ffmpeg and bin/ffprobe, linked with static libx264 and static libmp3lame. Do not alias system SONAMEs."
+    elif [ -n "${NVG_X264_PREFIX:-}" ]; then
         echo "note=One GPL build: shared libraries plus bin/ffmpeg and bin/ffprobe, linked with static libx264. Do not alias system SONAMEs."
     else
         echo "note=Shared libraries only. Load libavcodec.so.61 / libavcodec.61.dylib by absolute path. Do not alias system SONAMEs."
@@ -238,11 +258,18 @@ if [ -x "$OUTPUT_DIR/bin/ffmpeg" ]; then
         printf '%s\n' "$ENC" | grep -E "(^|[[:space:]])$name([[:space:]]|$)" >/dev/null \
             || { echo "error: encoder $name missing" >&2; exit 1; }
     done
+    if [ -n "${NVG_LAME_PREFIX:-}" ]; then
+        printf '%s\n' "$ENC" | grep -E '(^|[[:space:]])libmp3lame([[:space:]]|$)' >/dev/null \
+            || { echo "error: encoder libmp3lame missing" >&2; exit 1; }
+        MUX=$("$OUTPUT_DIR/bin/ffmpeg" -hide_banner -muxers)
+        printf '%s\n' "$MUX" | grep -E '(^|[[:space:]])mp3([[:space:]]|$)' >/dev/null \
+            || { echo "error: muxer mp3 missing" >&2; exit 1; }
+    fi
     for name in h264 aac pcm_s16le; do
         printf '%s\n' "$COD" | grep -E "(^|[[:space:]])$name([[:space:]]|$)" >/dev/null \
             || { echo "error: codec $name missing" >&2; exit 1; }
     done
-    for name in aresample concat reverse areverse setpts atempo scale fps volume amix overlay colorkey; do
+    for name in aresample concat reverse areverse setpts atempo scale fps volume amix overlay colorkey chorus vibrato hue hflip vflip negate apad setsar format eq; do
         printf '%s\n' "$FIL" | grep -E "(^|[[:space:]])$name([[:space:]]|$)" >/dev/null \
             || { echo "error: filter $name missing" >&2; exit 1; }
     done
