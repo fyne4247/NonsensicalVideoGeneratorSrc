@@ -33,7 +33,6 @@
     <Compile Include="..\..\src\backend\platform\PlatformTts.cs" Link="platform\PlatformTts.cs" />
     <Compile Include="..\..\src\backend\platform\ShutdownSignals.cs" Link="platform\ShutdownSignals.cs" />
     <Compile Include="..\..\src\backend\platform\AtomicDownload.cs" Link="platform\AtomicDownload.cs" />
-    <Compile Include="..\..\src\backend\platform\ProcessTree.cs" Link="platform\ProcessTree.cs" />
     <Compile Include="..\..\src\backend\platform\ToolPaths.cs" Link="platform\ToolPaths.cs" />
     <Compile Include="..\..\src\data\LibraryPathRules.cs" Link="LibraryPathRules.cs" />
   </ItemGroup>

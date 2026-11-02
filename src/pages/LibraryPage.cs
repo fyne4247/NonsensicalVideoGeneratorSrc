@@ -51,6 +51,9 @@ namespace NonsensicalVideoGenerator
         private bool importFinished;
         private int importOk;
         private int importFail;
+        private long chooserSeenTick;
+        private bool chooserTickLogged;
+        private List<LibraryFile> importedReady = new();
 #endif
         private static KeyboardState oldKeyboardState;
         private static KeyboardState newKeyboardState;
@@ -1753,8 +1756,28 @@ namespace NonsensicalVideoGenerator
         void PumpChooser()
         {
             PlatformFileDialog.FileChooser? chooser = pendingChooser;
-            if (chooser == null || !chooser.Finished)
+            if (chooser == null)
+            {
+                chooserSeenTick = 0;
+                chooserTickLogged = false;
                 return;
+            }
+            if (!chooser.Finished)
+            {
+                // The dialog process is off this thread. Logging only after it
+                // has stayed open shows the update loop is still running.
+                long now = Environment.TickCount64;
+                if (chooserSeenTick == 0)
+                    chooserSeenTick = now;
+                else if (!chooserTickLogged && now - chooserSeenTick >= 200)
+                {
+                    chooserTickLogged = true;
+                    ConsoleOutput.WriteLine("File chooser is open and the UI loop is still running.");
+                }
+                return;
+            }
+            chooserSeenTick = 0;
+            chooserTickLogged = false;
             string[] files = chooser.Files;
             LibraryType? type = pendingImportType;
             pendingChooser = null;
@@ -1775,22 +1798,29 @@ namespace NonsensicalVideoGenerator
                 importFinished = false;
                 importOk = 0;
                 importFail = 0;
+                importedReady = new List<LibraryFile>();
             }
             Global.generator.progressText = "Copying imported media…";
             ThreadPool.QueueUserWorkItem(_ =>
             {
+                var ready = new List<LibraryFile>();
                 int ok = 0;
                 int fail = 0;
                 foreach (string file in files)
                 {
+                    if (Global.exiting)
+                        break;
                     try
                     {
                         LibraryFile libraryFile = new(Path.GetFileNameWithoutExtension(file), file, type);
-                        LibraryFile? loaded = LibraryData.Load(libraryFile);
-                        if (loaded == null)
+                        LibraryFile? copied = LibraryData.CopyIntoLibrary(libraryFile, () => Global.exiting);
+                        if (copied == null)
                             fail++;
                         else
+                        {
+                            ready.Add(copied);
                             ok++;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1802,6 +1832,7 @@ namespace NonsensicalVideoGenerator
                 {
                     importOk = ok;
                     importFail = fail;
+                    importedReady = ready;
                     importFinished = true;
                 }
             });
@@ -1811,6 +1842,7 @@ namespace NonsensicalVideoGenerator
         {
             int ok;
             int fail;
+            List<LibraryFile> ready;
             lock (importGate)
             {
                 if (!importFinished)
@@ -1819,6 +1851,19 @@ namespace NonsensicalVideoGenerator
                 importCopyRunning = false;
                 ok = importOk;
                 fail = importFail;
+                ready = importedReady;
+                importedReady = new List<LibraryFile>();
+            }
+            for (int i = 0; i < ready.Count; i++)
+            {
+                try
+                {
+                    LibraryData.AddImported(ready[i]);
+                }
+                catch (Exception ex)
+                {
+                    ConsoleOutput.WriteLine("Import failed: " + ex.Message, Color.Red);
+                }
             }
             demandChange = true;
             Global.generator.progressText = "";
