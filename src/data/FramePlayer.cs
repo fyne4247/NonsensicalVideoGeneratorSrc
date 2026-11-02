@@ -9,7 +9,6 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Media;
 using System.Globalization;
 using System.Threading;
-using MonoGame.Extended.VideoPlayback;
 
 namespace NonsensicalVideoGenerator
 {
@@ -368,11 +367,22 @@ namespace NonsensicalVideoGenerator
                     ConsoleOutput.WriteLine(why, Color.Red);
                     Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
                     Global.videoPlaying = false;
+                    UserInterface.instance.videoPath = "";
+                    canPlayBgMusic = true;
+                    return false;
+                }
+                if (!VideoLoad.TryLoad(ready, out var loaded, out _))
+                {
+                    UserInterface.instance.video = null;
+                    UserInterface.instance.videoPath = "";
+                    Global.videoPlaying = false;
+                    canPlayBgMusic = true;
+                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
                     return false;
                 }
                 UserInterface.instance.videoPath = ready;
-                UserInterface.instance.video = VideoHelper.LoadFromFile(ready);
-                UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                UserInterface.instance.video = loaded;
+                UserInterface.instance.videoPlayer.Play(loaded);
                 UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                 Global.videoPlaying = true;
                 canPlayBgMusic = false;
@@ -389,7 +399,10 @@ namespace NonsensicalVideoGenerator
             {
                 ConsoleOutput.WriteLine("Library preview failed: " + ex.Message, Color.Red);
                 Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                UserInterface.instance.video = null;
+                UserInterface.instance.videoPath = "";
                 Global.videoPlaying = false;
+                canPlayBgMusic = true;
                 return false;
             }
         }
@@ -701,12 +714,22 @@ namespace NonsensicalVideoGenerator
                     {
                         ConsoleOutput.WriteLine(replayWhy, Color.Red);
                         Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                        UserInterface.instance.videoPath = "";
                         Global.videoPlaying = false;
+                        canPlayBgMusic = true;
+                    }
+                    else if (!VideoLoad.TryLoad(UserInterface.instance.videoPath, out var loaded, out _))
+                    {
+                        UserInterface.instance.video = null;
+                        UserInterface.instance.videoPath = "";
+                        Global.videoPlaying = false;
+                        canPlayBgMusic = true;
+                        Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
                     }
                     else
                     {
-                        UserInterface.instance.video = VideoHelper.LoadFromFile(UserInterface.instance.videoPath);
-                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                        UserInterface.instance.video = loaded;
+                        UserInterface.instance.videoPlayer.Play(loaded);
                         UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                         if (ScreenManager.GetScreen<VideoScreen>("Video") == null
                             || ScreenManager.GetScreen<VideoScreen>("Video")?.screenType == ScreenType.Hidden)

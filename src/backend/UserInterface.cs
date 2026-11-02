@@ -8,7 +8,6 @@ using System.IO;
 using System.Windows.Forms;
 #endif
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
 using System.Reflection;
 using System.Collections.Generic;
 
@@ -79,6 +78,9 @@ namespace NonsensicalVideoGenerator
         }
         public void SetFullscreen(bool fullscreen)
         {
+#if DESKTOPGL
+            SetFullscreenDesktopGl(fullscreen);
+#else
             AspectRatio aspectRatio = new();
             if(SaveData.saveValues["MatchAspectRatio"] == "true")
                 aspectRatio = GlobalGraphics.FindMatchingAspectRatio();
@@ -108,7 +110,109 @@ namespace NonsensicalVideoGenerator
 #endif
             if(!fullscreen)
                 GlobalGraphics.SetAspectRatio(SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio());
+#endif
         }
+#if DESKTOPGL
+        struct WindowedFrame
+        {
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
+        }
+        WindowedFrame? _windowedFrame;
+
+        /// <summary>
+        /// Borderless desktop fullscreen on the display that already holds the window.
+        /// HardwareModeSwitch stays off so the display mode is not changed.
+        /// Leaving fullscreen puts the window back at the size and position it had before.
+        /// </summary>
+        void SetFullscreenDesktopGl(bool fullscreen)
+        {
+            if (!fullscreen && !GlobalGraphics.fullScreen)
+                return;
+            if (fullscreen && !GlobalGraphics.fullScreen)
+            {
+                int width = _graphics.PreferredBackBufferWidth;
+                int height = _graphics.PreferredBackBufferHeight;
+                if (width <= 0 || height <= 0)
+                {
+                    width = Window.ClientBounds.Width;
+                    height = Window.ClientBounds.Height;
+                }
+                _windowedFrame = new WindowedFrame
+                {
+                    X = Window.Position.X,
+                    Y = Window.Position.Y,
+                    Width = width,
+                    Height = height,
+                };
+            }
+            if (!fullscreen)
+            {
+                GlobalGraphics.fullScreen = false;
+                Window.IsBorderless = false;
+                _graphics.HardwareModeSwitch = false;
+                _graphics.IsFullScreen = false;
+                AspectRatio windowed = SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio();
+                GlobalGraphics.SetAspectRatio(windowed);
+                if (_windowedFrame.HasValue)
+                {
+                    WindowedFrame frame = _windowedFrame.Value;
+                    _graphics.PreferredBackBufferWidth = frame.Width;
+                    _graphics.PreferredBackBufferHeight = frame.Height;
+                    _graphics.ApplyChanges();
+                    Window.Position = new Point(frame.X, frame.Y);
+                    ConsoleOutput.WriteLine(
+                        "Fullscreen restored to " + frame.Width.ToString(CultureInfo.InvariantCulture) + "x" + frame.Height.ToString(CultureInfo.InvariantCulture)
+                        + " at " + frame.X.ToString(CultureInfo.InvariantCulture) + "," + frame.Y.ToString(CultureInfo.InvariantCulture)
+                        + " (window now " + Window.ClientBounds.Width.ToString(CultureInfo.InvariantCulture) + "x" + Window.ClientBounds.Height.ToString(CultureInfo.InvariantCulture)
+                        + " at " + Window.Position.X.ToString(CultureInfo.InvariantCulture) + "," + Window.Position.Y.ToString(CultureInfo.InvariantCulture) + ").",
+                        Color.Transparent);
+                }
+                return;
+            }
+            DesktopFullscreen.DisplayBounds[] displays;
+            if (!DesktopFullscreen.TryReadDisplays(out displays) || displays.Length == 0)
+            {
+                DisplayMode mode = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
+                displays = new[]
+                {
+                    new DesktopFullscreen.DisplayBounds(0, 0, mode.Width, mode.Height),
+                };
+            }
+            Rectangle client = Window.ClientBounds;
+            int index = DesktopFullscreen.ChooseIndex(Window.Position.X, Window.Position.Y, client.Width, client.Height, displays);
+            if (index < 0)
+                index = 0;
+            DesktopFullscreen.DisplayBounds chosen = displays[index];
+            int screenWidth = chosen.Width > 0 ? chosen.Width : GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
+            int screenHeight = chosen.Height > 0 ? chosen.Height : GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+            AspectRatio aspectRatio = new();
+            if (SaveData.saveValues["MatchAspectRatio"] == "true")
+                aspectRatio = GlobalGraphics.FindMatchingAspectRatio();
+            float scale = GlobalGraphics.scale;
+            if (scale < 0.01f)
+                scale = 1f;
+            aspectRatio.preferredResolution = new Point((int)(screenWidth / scale), (int)(screenHeight / scale));
+            aspectRatio.drawOffset = new Vector2(
+                (aspectRatio.preferredResolution.X - (GlobalGraphics.scaledWidth / scale)) / 2,
+                (aspectRatio.preferredResolution.Y - (GlobalGraphics.scaledHeight / scale)) / 2);
+            GlobalGraphics.fullScreen = true;
+            Window.IsBorderless = true;
+            _graphics.HardwareModeSwitch = false;
+            _graphics.IsFullScreen = true;
+            GlobalGraphics.SetAspectRatio(aspectRatio);
+            _graphics.PreferredBackBufferWidth = screenWidth;
+            _graphics.PreferredBackBufferHeight = screenHeight;
+            _graphics.ApplyChanges();
+            ConsoleOutput.WriteLine(
+                "Fullscreen on display " + index.ToString(CultureInfo.InvariantCulture)
+                + " " + screenWidth.ToString(CultureInfo.InvariantCulture) + "x" + screenHeight.ToString(CultureInfo.InvariantCulture)
+                + " at " + chosen.X.ToString(CultureInfo.InvariantCulture) + "," + chosen.Y.ToString(CultureInfo.InvariantCulture) + ".",
+                Color.Transparent);
+        }
+#endif
         public void CenterToScreen()
         {
 #if WINDOWSDX
@@ -325,6 +429,7 @@ namespace NonsensicalVideoGenerator
 #if DESKTOPGL
             GraphicsThread.Pump();
             AudioOutputFollower.FlushLog(line => ConsoleOutput.WriteLine(line, Color.Transparent));
+            PluginHandler.PumpChooser();
 #endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()
@@ -369,12 +474,32 @@ namespace NonsensicalVideoGenerator
                     if(randomBootMovie != null && File.Exists(randomBootMovie))
                     {
                         videoPath = VideoCache.GetCachePath(randomBootMovie);
-                        video = VideoHelper.LoadFromFile(videoPath);
-                        // current time + intro duration
-                        introGoal = gameTime.TotalGameTime.TotalSeconds + video.Duration.Seconds + 1;
-                        if(randomBootMovie.ToLower().EndsWith("defaultlogo.mp4"))
+                        if (!MediaGuard.CanOpen(videoPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blockedBoot))
                         {
-                            introGoal -= 0.5;
+                            ConsoleOutput.WriteLine(blockedBoot, Color.Red);
+                            video = null;
+                            videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
+                        }
+                        else if (!VideoLoad.TryLoad(videoPath, out var loaded, out _))
+                        {
+                            // Clear the path and leave introFinished false so this
+                            // same update pushes the intro screen and reaches the menu.
+                            video = null;
+                            videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
+                        }
+                        else
+                        {
+                            video = loaded;
+                            // current time + intro duration
+                            introGoal = gameTime.TotalGameTime.TotalSeconds + loaded.Duration.Seconds + 1;
+                            if(randomBootMovie.ToLower().EndsWith("defaultlogo.mp4"))
+                            {
+                                introGoal -= 0.5;
+                            }
                         }
                     }
                     else

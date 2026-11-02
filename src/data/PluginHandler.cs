@@ -11,6 +11,7 @@ using MoonSharp.Interpreter;
 using Steamworks;
 using System.ComponentModel;
 using System.Globalization;
+using System.Threading;
 #if WINDOWSDX
 using System.Windows.Forms;
 #endif
@@ -925,7 +926,11 @@ namespace NonsensicalVideoGenerator
             return;
         }
         // OpenFilePicker for lua
-        // The arguments match some default windows file dialog options
+        // The arguments match some default windows file dialog options.
+        // This stays synchronous. OpenFiles waits on this thread until the chooser
+        // process exits. Lua calls it from the render job (recall.lua), not from
+        // the MonoGame update loop, so the window can keep drawing. A chooser that
+        // is already open is the one this call waits on. Only one runs at a time.
         public string OpenFilePicker(string title, string filter, bool multiselect = false)
         {
 #if WINDOWSDX
@@ -2127,16 +2132,30 @@ namespace NonsensicalVideoGenerator
                             bootMoviePath = openFileDialog.FileName;
                         }
                     }
-#else
-                    string[] pickedMovie = PlatformFileDialog.OpenFiles(L.T(0, "Addons:BootMoviePicker"), "*.mp4", false, null);
-                    if (pickedMovie.Length > 0 && File.Exists(pickedMovie[0]))
-                        bootMoviePath = pickedMovie[0];
-#endif
                     if (File.Exists(bootMoviePath))
                     {
                         // Copy boot movie and rename it to %filename%.mp4 (only 6 seconds long)
                         Generator.SimpleClipVideo(bootMoviePath, Path.Combine(pluginPath, filename + ".mp4"), 0.0, 6.0);
                     }
+#else
+                    if (PlatformFileDialog.TryBegin(L.T(0, "Addons:BootMoviePicker"), "*.mp4", false, null, out PlatformFileDialog.FileChooser bootPick))
+                    {
+                        bootChooser = bootPick;
+                        bootPluginDir = pluginPath;
+                        bootFileName = filename;
+                        bootDefaultMovie = bootMoviePath;
+                        bootMoviePending = true;
+                        bootCopyRunning = false;
+                        bootCopyDone = false;
+                        bootCopyError = null;
+                        Global.generator.progressText = "Choosing a boot movie…";
+                        ConsoleOutput.WriteLine("Boot movie chooser is open off the update thread.", Color.Transparent);
+                    }
+                    else if (File.Exists(bootMoviePath))
+                    {
+                        Generator.SimpleClipVideo(bootMoviePath, Path.Combine(pluginPath, filename + ".mp4"), 0.0, 6.0);
+                    }
+#endif
                 }
                 // Replace "effect" with filename in the file.
                 string fileContents = File.ReadAllText(pluginFile);
@@ -2160,15 +2179,69 @@ namespace NonsensicalVideoGenerator
         public static Plugin? publishPlugin = null;
         public static WorkshopTag flags = WorkshopTag.None;
         public static string workshopIcon = "";
+#if DESKTOPGL
+        static PlatformFileDialog.FileChooser? bootChooser;
+        static string bootPluginDir = "";
+        static string bootFileName = "";
+        static string bootDefaultMovie = "";
+        static bool bootMoviePending;
+        static bool bootCopyRunning;
+        static volatile bool bootCopyDone;
+        static string? bootCopyError;
+        static PlatformFileDialog.FileChooser? iconChooser;
+        static bool workshopIconPending;
+        static string? suppliedWorkshopIcon;
+        static Plugin? pendingIconPlugin;
+        static WorkshopTag pendingIconFlags;
+        static bool pendingIconForce;
+#endif
+        public static bool ChooserPending
+        {
+            get
+            {
+#if DESKTOPGL
+                return bootMoviePending || workshopIconPending || bootCopyRunning;
+#else
+                return false;
+#endif
+            }
+        }
+        public static void PumpChooser()
+        {
+#if DESKTOPGL
+            PumpBootMovie();
+            PumpWorkshopIcon();
+#endif
+        }
         public static string? PickWorkshopIcon()
         {
 #if !WINDOWSDX
-            string[] picked = PlatformFileDialog.OpenFiles(L.T(0, "Addons:WorkshopIconPicker"), "*.jpg;*.png;*.gif", false, Path.GetFullPath("templates"));
-            if (picked.Length > 0)
-                return picked[0];
-            GlobalContent.PlaySound("Error");
-            ConsoleOutput.WriteLine("No icon selected.", Color.Red);
-            Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+            if (suppliedWorkshopIcon != null)
+            {
+                string chosen = suppliedWorkshopIcon;
+                suppliedWorkshopIcon = null;
+                return chosen;
+            }
+            if (workshopIconPending)
+                return null;
+            string templates = "templates";
+            try
+            {
+                templates = Path.GetFullPath("templates");
+            }
+            catch
+            {
+            }
+            if (!PlatformFileDialog.TryBegin(L.T(0, "Addons:WorkshopIconPicker"), "*.jpg;*.png;*.gif", false, templates, out PlatformFileDialog.FileChooser iconPick))
+            {
+                GlobalContent.PlaySound("Error");
+                ConsoleOutput.WriteLine(PlatformFileDialog.LastNotice ?? "No icon selected.", Color.Red);
+                Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+                return null;
+            }
+            iconChooser = iconPick;
+            workshopIconPending = true;
+            Global.generator.progressText = "Choosing a Workshop icon…";
             return null;
 #else
             // Select jpg, png, or gif icon with file dialog
@@ -2189,6 +2262,101 @@ namespace NonsensicalVideoGenerator
             return null;
 #endif
         }
+#if DESKTOPGL
+        static void PumpBootMovie()
+        {
+            if (bootCopyDone)
+            {
+                bootCopyDone = false;
+                bootCopyRunning = false;
+                bootMoviePending = false;
+                bootChooser = null;
+                if (!string.IsNullOrEmpty(bootCopyError))
+                    ConsoleOutput.WriteLine("Boot movie was not clipped: " + bootCopyError, Color.Red);
+                bootCopyError = null;
+                if (Global.exiting)
+                    return;
+                Global.generator.progressText = "";
+                ReloadAddons();
+                return;
+            }
+            if (!bootMoviePending || bootCopyRunning || bootChooser == null)
+                return;
+            if (Global.exiting)
+            {
+                bootChooser.Cancel();
+                bootMoviePending = false;
+                bootChooser = null;
+                return;
+            }
+            if (!bootChooser.Finished)
+                return;
+            string source = bootDefaultMovie;
+            string[] files = bootChooser.Files;
+            if (files.Length > 0 && !string.IsNullOrEmpty(files[0]) && File.Exists(files[0]))
+                source = files[0];
+            string dest = Path.Combine(bootPluginDir, bootFileName + ".mp4");
+            bootChooser = null;
+            bootCopyRunning = true;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    if (!Global.exiting && File.Exists(source))
+                        Generator.SimpleClipVideo(source, dest, 0.0, 6.0);
+                }
+                catch (Exception ex)
+                {
+                    bootCopyError = ex.Message;
+                }
+                bootCopyDone = true;
+            });
+        }
+        static void PumpWorkshopIcon()
+        {
+            if (!workshopIconPending || iconChooser == null)
+                return;
+            if (Global.exiting)
+            {
+                iconChooser.Cancel();
+                workshopIconPending = false;
+                iconChooser = null;
+                pendingIconPlugin = null;
+                return;
+            }
+            if (!iconChooser.Finished)
+                return;
+            string[] files = iconChooser.Files;
+            iconChooser = null;
+            workshopIconPending = false;
+            Plugin? plugin = pendingIconPlugin;
+            WorkshopTag flags = pendingIconFlags;
+            bool force = pendingIconForce;
+            pendingIconPlugin = null;
+            if (plugin == null || files.Length == 0 || string.IsNullOrEmpty(files[0]) || !File.Exists(files[0]))
+            {
+                try
+                {
+                    GlobalContent.PlaySound("Error");
+                }
+                catch
+                {
+                }
+                ConsoleOutput.WriteLine("No icon selected.", Color.Red);
+                Global.generator.progressText = L.T(0, "Addons:StatusFailWorkshopIcon");
+                return;
+            }
+            suppliedWorkshopIcon = files[0];
+            PublishPlugin(plugin, flags, false, force);
+        }
+        static void ReloadAddons()
+        {
+            if (SteamManager.initialized)
+                LoadWorkshop(false);
+            else
+                LoadPluginsThreaded(false);
+        }
+#endif
         public static void PublishPlugin(Plugin plugin, WorkshopTag tagflags, bool skipIconParsing = false, bool forceIconForBootMovies = false)
         {
             if (publishing)
@@ -2231,6 +2399,15 @@ namespace NonsensicalVideoGenerator
                     iconPath = PickWorkshopIcon();
                 }
             }
+#if DESKTOPGL
+            if (workshopIconPending)
+            {
+                pendingIconPlugin = plugin;
+                pendingIconFlags = tagflags;
+                pendingIconForce = forceIconForBootMovies;
+                return;
+            }
+#endif
             bool failedCheck = false;
             // file must exist
             if(!File.Exists(iconPath) || iconPath == null)

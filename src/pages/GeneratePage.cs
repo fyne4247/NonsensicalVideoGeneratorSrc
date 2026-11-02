@@ -5,7 +5,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
 using System.Diagnostics;
 
 namespace NonsensicalVideoGenerator
@@ -314,10 +313,19 @@ namespace NonsensicalVideoGenerator
                                             }
                                             return true;
                                         }
+                                        if (!VideoLoad.TryLoad(cachePath, out var loaded, out _))
+                                        {
+                                            UserInterface.instance.video = null;
+                                            UserInterface.instance.videoPath = "";
+                                            Global.videoPlaying = false;
+                                            FramePlayer.canPlayBgMusic = true;
+                                            Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                            return true;
+                                        }
                                         UserInterface.instance.videoPath = cachePath;
-                                        UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+                                        UserInterface.instance.video = loaded;
                                         //UserInterface.instance.videoPlayer.IsLooped = true;
-                                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                        UserInterface.instance.videoPlayer.Play(loaded);
                                         Global.videoPlaying = true;
                                         UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                                     }
