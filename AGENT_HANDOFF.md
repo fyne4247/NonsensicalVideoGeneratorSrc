@@ -1051,3 +1051,9 @@ Acceptance:
 - No worktrees removed. git worktree prune ran. All local files, worker refs, external packages, owner data and VM state preserved. Detailed branch/hash/count table: docs/worktree-cleanup-2026-11-02.md; raw local audit /tmp/nvg-worktree-audit-20261102.json.
 - Cleanup authorization supersedes the earlier suspension only for old unused fully-merged working copies; does not authorize deleting uncommitted/ignored contents, unmerged branches, remote scratch, owner evidence or VM files. Active workflow prohibits force removal; reported this concrete blocker to owner.
 - NEXT ACTION: Continue the native port at the pending17/18 integration/review gate. Cleanup is blocked under the present no-force/local-file-preservation rules; do not bypass by manually deleting directories. No main merge or push.
+
+- hard-18 **approved**: branch `atmux-NonsensicalVideoGeneratorSrc-flow-1101-0201-hard-18`, final commit 3986999, which contains hard-17 4f8d80b. NvgMedia.Tests 26/26; AtomicDownload, Chooser and DialogShell 44/44; DesktopGL builds. Worker closed.
+  - **Not verified, acceptance still open:** the real macOS chooser with the UI loop drawing. The worker's one GUI attempt never opened the dialog (clicked an empty slot). Must be proven on the fresh package, by me or the owner.
+  - **Residual:** a file that probes OK can still SIGSEGV if avformat_open_input later fails; DLL unpatched. Guard covers missing, empty and unprobeable files only.
+  - After leaving the Library page, a finished import is listed only when the page updates again. The files are safe on disk meanwhile.
+  - Next: hard-19 starts after Sol merges this branch. Windows compile and the full suite wait for the trial merge.
