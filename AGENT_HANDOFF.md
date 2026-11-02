@@ -1036,3 +1036,9 @@ Acceptance:
 2. Links: DesktopGL opens `steam://` only when a handler exists, otherwise the https page. Windows keeps `steam://` first and falls back to https only on failure. Tested as URL plans with a fake launcher: no real Steam launch and no Steam account actions.
 3. Guard `UserInterface.cs:372` and `PluginsPage.cs:716` with `MediaGuard`, and move PluginHandler's non-Lua chooser call sites to B's non-blocking API if they run on the update thread. Lua `openFilePicker` stays synchronous: state how it behaves.
 4. `tools/test/`: trace launcher template and watcher. Each launch saves `console.txt` under a timestamped name first, keeps a running copy, allows only one watcher per data root, and hashes files only after their size is stable. It takes target paths as arguments and is proven on a disposable new directory, not on `/tmp/nvg-owner-r2`.
+
+## Opus: review notes, completion round (in progress)
+
+- hard-17 547f583: fix round sent. Silent overwrite of a different valid clip on publish, AtomicDownload trace missing from console.txt, sweep decides on full path (an ancestor named *.nvgpart would delete the library), long partial names. Added: atomic, non-deleting `CopyIntoLibrary` and `AddImported`.
+- hard-18 5735a7a: crash reproduced and explained: the vendored DecodeContext double-frees when avformat_open_input fails, under FFmpeg 7. The DLL is not patched, so a file that probes OK and then fails to open can still crash. Fix round sent: ffprobe timeout was ineffective, synchronous probe on the update thread, menu music left off after a reject, chooser result when leaving the page. After hard-17: thread-pool import must use the new API.
+- Open, flagged to Sol at final review: `LibraryData.Load` deleting a differing same-named file was an untested wipe candidate. It's being closed off as part of item 5, not proven as the cause.
