@@ -951,3 +951,23 @@ Status: **wipe gate stays OPEN; not reproduced so far.** About 250 clips importe
 - Crash: SIGSEGV on the main thread in libavutil `av_opt_free` at 10:06:47 (`~/Library/Logs/DiagnosticReports/NonsensicalVideoGenerator-2026-11-02-100733.ips`, pid 13916). The owner believes they had clicked a 0-byte fear clip. Consistent with that, not reproduced, cause not proven. If confirmed, this raises the severity of the 0-byte download defect.
 - New owner report: starting a generation while a render is playing makes the menu music start and then stop. Not investigated in depth. `FramePlayer.Stop` at generation start and the music fade logic also exist on dev, so it may be pre-existing, but FramePlayer changed in the port and this has not been compared on Windows.
 - Test setup defect (mine): the app overwrites console.txt on launch, so relaunching at 10:07:19 erased the trace for the 10:03:39 launch. Saved logs: `/tmp/nvg-owner-r2/run1-logs/`, `/tmp/nvg-owner-r2/run2-logs-100730/`. Running capture since 10:07: `/tmp/nvg-owner-r2/console-capture-from-1007.log`.
+
+## Opus: owner retest #2, result
+
+**Wipe gate: not reproduced, root cause unknown. Still Sol's decision; I do not claim it is fixed.** Owner imported about 250 clips and made 10 renders across several launches. After a normal quit and reopen the owner confirms everything is present: 243 clips (minus their own deletes and Organize moves) and Render1 to Render10. No unexplained removal after 10:11. One limit: the trace for the 10:03:39 launch was lost, and the owner's account of the 10:04 deletes is general, not per file.
+
+Owner results:
+- Pass: previews, menu music (no clipping heard), in-app media picker, UI size change after restart, library retention across quit and reopen.
+- Not tested: live audio output switch in this session. Audacity comparison not reported.
+
+Open list (none fixed):
+1. **Crash:** SIGSEGV in libavutil `av_opt_free` at 10:06:47, owner believes on clicking a 0-byte clip. Not reproduced. Highest priority of this list.
+2. **0-byte library files** after quitting during an add-on download (`src/data/PluginHandler.cs:258-260`). Download to a temp name, then move.
+3. **Import dialog stuck on "Loading…"** in macOS's Shared location. `PlatformFileDialog.Run` waits on osascript, and no thread was found at the LibraryPage caller, so the window likely freezes meanwhile; this may be the original "picker froze" report. Workaround result not reported. Consider a normal start folder and not blocking the update loop.
+4. **Add-on download lookup failures** (github.com:443), about 30 s each. Cause not established.
+5. **Menu music starts then stops** when generating while a render plays. Possibly pre-existing; not compared on Windows.
+6. **Fullscreen** does nothing useful on DesktopGL. Low priority for the owner.
+7. **temp.mp4 listed beside the real render.** Same logic on dev; not run on Windows.
+8. **"View the Steam Workshop" does nothing without Steam.** dev has the same `steam://` only link. Add an https fallback, including the similar links on the addons page.
+
+Harness note: the launcher does not preserve console.txt across launches. Fix before any further trace test.
