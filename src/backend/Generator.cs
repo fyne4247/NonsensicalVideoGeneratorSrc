@@ -876,19 +876,7 @@ namespace NonsensicalVideoGenerator
         }
         public void StartGeneration(ProgressChangedEventHandler progressReporter, RunWorkerCompletedEventHandler completedReporter)
         {
-            // Delete all paths in calledMedia with LibraryData.Unload()
-            if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"])
-                || bool.Parse(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]))
-            {
-                for (int i = 0; i < LibraryData.calledMedia.Count; i++)
-                {
-                    if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]))
-                        LibraryData.Unload(LibraryData.calledMedia[i]);
-                    else
-                        LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
-                }
-            }
-            LibraryData.calledMedia.Clear();
+            ApplyCalledMediaLimit();
             Global.usedWorkshopPlugin = false;
             Global.rolledForOverlay = false;
             Global.usedAllEffectChance = false;
@@ -1755,20 +1743,26 @@ namespace NonsensicalVideoGenerator
                 ProcessTree.StartTracked(process2);
                 process2.BeginErrorReadLine();
                 process2.WaitForExit();
-                // Delete all paths in calledMedia with LibraryData.Unload()
-                if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"])
-                    || bool.Parse(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]))
-                {
-                    for (int i = 0; i < LibraryData.calledMedia.Count; i++)
-                    {
-                        if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]))
-                            LibraryData.Unload(LibraryData.calledMedia[i]);
-                        else
-                            LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
-                    }
-                }
-                LibraryData.calledMedia.Clear();
+                ApplyCalledMediaLimit();
             }
+        }
+        // Library files stay on disk unless DeleteClipsAfterMaxUniqueClips is true.
+        // Disable only records the path. Both run after concat and at the next start.
+        static void ApplyCalledMediaLimit()
+        {
+            bool deleteClips = LibraryPathRules.FlagIsTrue(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]);
+            bool disableClips = LibraryPathRules.FlagIsTrue(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]);
+            if(deleteClips || disableClips)
+            {
+                for (int i = 0; i < LibraryData.calledMedia.Count; i++)
+                {
+                    if(deleteClips)
+                        LibraryData.Unload(LibraryData.calledMedia[i]);
+                    else
+                        LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
+                }
+            }
+            LibraryData.calledMedia.Clear();
         }
         public static void OverlayVideo(string video, string overlay, string chromaKeyColor = "00FF00", string chromaKeySimilarity = "0.3", string chromaKeyBlend = "0.2")
         {

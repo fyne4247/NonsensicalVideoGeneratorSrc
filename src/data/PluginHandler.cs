@@ -525,15 +525,18 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
-            File.Copy(combinedSource, combinedDest);
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            if (!ConfinedToJob(replacedSource) || !ConfinedToJob(replacedDest)) return;
+            File.Copy(Path.Combine(jobDirectory, replacedSource), Path.Combine(jobDirectory, replacedDest));
         }
         // FileDelete for lua
         public static void FileDelete(string path)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!ConfinedToJob(replacedPath)) return;
+            string combinedPath = Path.Combine(jobDirectory, replacedPath);
             if (File.Exists(combinedPath))
                 File.Delete(combinedPath);
         }
@@ -542,10 +545,21 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            if (!ConfinedToJob(replacedSource) || !ConfinedToJob(replacedDest)) return;
+            string combinedSource = Path.Combine(jobDirectory, replacedSource);
             if (File.Exists(combinedSource))
-                File.Move(combinedSource, combinedDest);
+                File.Move(combinedSource, Path.Combine(jobDirectory, replacedDest));
+        }
+        // Placeholder values such as ../.././library/... are invisible to ValidateInput.
+        static bool ConfinedToJob(string replacedPath)
+        {
+            if (LibraryPathRules.StaysInsideJob(jobDirectory, replacedPath))
+                return true;
+            ConsoleOutput.WriteLine("An addon attempted to perform directory traversal.", Color.Red);
+            ConsoleOutput.WriteLine("Offending command: " + replacedPath, Color.Red);
+            return false;
         }
         // FileExists for lua
         public static bool FileExists(string path)

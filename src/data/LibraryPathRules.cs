@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace NonsensicalVideoGenerator
 {
@@ -41,6 +42,56 @@ namespace NonsensicalVideoGenerator
             if (string.IsNullOrEmpty(joined))
                 return true;
             return ToBackslash(joined).TrimEnd('\\') == "..\\..";
+        }
+
+        /// <summary>
+        /// SaveData stores these switches as "true" or "false".
+        /// Generation may delete a library file only when this is true for DeleteClipsAfterMaxUniqueClips.
+        /// </summary>
+        public static bool FlagIsTrue(string? setting)
+        {
+            return bool.TryParse(setting, out bool value) && value;
+        }
+
+        /// <summary>
+        /// True when a plugin path, after placeholder replacement, stays inside the job directory.
+        /// Rejects Windows "..\", POSIX "../", a leading "/", and a drive-rooted path.
+        /// Path.Combine drops the job directory when the replacement is absolute.
+        /// </summary>
+        public static bool StaysInsideJob(string? jobDirectory, string? replacedPath)
+        {
+            if (string.IsNullOrEmpty(jobDirectory) || string.IsNullOrWhiteSpace(replacedPath))
+                return false;
+            if (EscapesJob(replacedPath))
+                return false;
+            try
+            {
+                string root = Path.GetFullPath(jobDirectory);
+                if (root[root.Length - 1] != Path.DirectorySeparatorChar && root[root.Length - 1] != Path.AltDirectorySeparatorChar)
+                    root += Path.DirectorySeparatorChar;
+                string combined = Path.GetFullPath(Path.Combine(jobDirectory, replacedPath));
+                StringComparison compare = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                return combined.StartsWith(root, compare);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        static bool EscapesJob(string replacedPath)
+        {
+            if (replacedPath[0] == '/' || replacedPath[0] == '\\')
+                return true;
+            if (replacedPath.Length >= 2 && replacedPath[1] == ':' && char.IsLetter(replacedPath[0]))
+                return true;
+            string normalized = replacedPath.Replace('\\', '/');
+            foreach (string part in normalized.Split('/'))
+            {
+                if (part == "..")
+                    return true;
+            }
+            return false;
         }
     }
 }
