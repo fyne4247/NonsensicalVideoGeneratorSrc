@@ -356,9 +356,11 @@ namespace NonsensicalVideoGenerator
                                 {
                                     // Delete existing videoi.mp4
                                     if(File.Exists(Path.Combine(temporaryDirectory, thisClip.name)))
+                                        NvgTrace.FileOp("File.Delete", Path.Combine(temporaryDirectory, thisClip.name));
                                         File.Delete(Path.Combine(temporaryDirectory, thisClip.name));
                                     try
                                     {
+                                        NvgTrace.FileOp("File.Move", effect.jobFolder + "output.mp4", Path.Combine(temporaryDirectory, thisClip.name));
                                         File.Move(effect.jobFolder + "output.mp4", Path.Combine(temporaryDirectory, thisClip.name));
                                     }
                                     catch(Exception ex)
@@ -373,6 +375,7 @@ namespace NonsensicalVideoGenerator
                                 }
                                 // Delete job folder.
                                 if(!bool.Parse(SaveData.saveValues["HiddenKeepTemporaryJobFolders"]))
+                                    NvgTrace.FileOp("Directory.Delete", effect.jobFolder, true);
                                     Directory.Delete(effect.jobFolder, true);
                             }
                             ConsoleOutput.WriteLine(effect.success ? "Applied "+effect.pluginName+" to " + (thisClip.rolledForTransition ? "transition" : "clip") + " " + i + "." : "Failed to apply "+effect.pluginName+" to " + (thisClip.rolledForTransition ? "transition" : "clip") + " " + i + ".", effect.success ? Color.LightGreen : Color.Red);
@@ -730,9 +733,11 @@ namespace NonsensicalVideoGenerator
                             {
                                 // Delete existing tempOutput
                                 if(File.Exists(tempOutput))
+                                    NvgTrace.FileOp("File.Delete", tempOutput);
                                     File.Delete(tempOutput);
                                 try
                                 {
+                                    NvgTrace.FileOp("File.Move", effect.jobFolder + "output.mp4", tempOutput);
                                     File.Move(effect.jobFolder + "output.mp4", tempOutput);
                                 }
                                 catch(Exception ex)
@@ -747,6 +752,7 @@ namespace NonsensicalVideoGenerator
                             }
                             // Delete job folder.
                             if(!bool.Parse(SaveData.saveValues["HiddenKeepTemporaryJobFolders"]))
+                                NvgTrace.FileOp("Directory.Delete", effect.jobFolder, true);
                                 Directory.Delete(effect.jobFolder, true);
                         }
                         if(effect.pluginName != "")
@@ -876,19 +882,7 @@ namespace NonsensicalVideoGenerator
         }
         public void StartGeneration(ProgressChangedEventHandler progressReporter, RunWorkerCompletedEventHandler completedReporter)
         {
-            // Delete all paths in calledMedia with LibraryData.Unload()
-            if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"])
-                || bool.Parse(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]))
-            {
-                for (int i = 0; i < LibraryData.calledMedia.Count; i++)
-                {
-                    if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]))
-                        LibraryData.Unload(LibraryData.calledMedia[i]);
-                    else
-                        LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
-                }
-            }
-            LibraryData.calledMedia.Clear();
+            ApplyCalledMediaLimit();
             Global.usedWorkshopPlugin = false;
             Global.rolledForOverlay = false;
             Global.usedAllEffectChance = false;
@@ -1130,9 +1124,11 @@ namespace NonsensicalVideoGenerator
                         {
                             // Delete existing videoi.mp4
                             if (File.Exists(Path.Combine(temporaryDirectory, thisClip.name)))
+                                NvgTrace.FileOp("File.Delete", Path.Combine(temporaryDirectory, thisClip.name));
                                 File.Delete(Path.Combine(temporaryDirectory, thisClip.name));
                             try
                             {
+                                NvgTrace.FileOp("File.Move", effect.jobFolder + "output.mp4", Path.Combine(temporaryDirectory, thisClip.name));
                                 File.Move(effect.jobFolder + "output.mp4", Path.Combine(temporaryDirectory, thisClip.name));
                             }
                             catch (Exception ex)
@@ -1147,6 +1143,7 @@ namespace NonsensicalVideoGenerator
                         }
                         // Delete job folder.
                         if (!bool.Parse(SaveData.saveValues["HiddenKeepTemporaryJobFolders"]))
+                            NvgTrace.FileOp("Directory.Delete", effect.jobFolder, true);
                             Directory.Delete(effect.jobFolder, true);
                         ConsoleOutput.WriteLine(effect.success ? "Applied " + effect.pluginName + " to effect test video." : "Failed to apply " + effect.pluginName + " to effect test video.", effect.success ? Color.LightGreen : Color.Red);
                     }
@@ -1516,6 +1513,7 @@ namespace NonsensicalVideoGenerator
             try
             {
                 if (File.Exists(ou))
+                    NvgTrace.FileOp("File.Delete", ou);
                     File.Delete(ou);
             }
             catch (Exception ex)
@@ -1755,20 +1753,26 @@ namespace NonsensicalVideoGenerator
                 ProcessTree.StartTracked(process2);
                 process2.BeginErrorReadLine();
                 process2.WaitForExit();
-                // Delete all paths in calledMedia with LibraryData.Unload()
-                if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"])
-                    || bool.Parse(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]))
-                {
-                    for (int i = 0; i < LibraryData.calledMedia.Count; i++)
-                    {
-                        if(bool.Parse(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]))
-                            LibraryData.Unload(LibraryData.calledMedia[i]);
-                        else
-                            LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
-                    }
-                }
-                LibraryData.calledMedia.Clear();
+                ApplyCalledMediaLimit();
             }
+        }
+        // Library files stay on disk unless DeleteClipsAfterMaxUniqueClips is true.
+        // Disable only records the path. Both run after concat and at the next start.
+        static void ApplyCalledMediaLimit()
+        {
+            bool deleteClips = LibraryPathRules.FlagIsTrue(SaveData.saveValues["DeleteClipsAfterMaxUniqueClips"]);
+            bool disableClips = LibraryPathRules.FlagIsTrue(SaveData.saveValues["DisableClipsAfterMaxUniqueClips"]);
+            if(deleteClips || disableClips)
+            {
+                for (int i = 0; i < LibraryData.calledMedia.Count; i++)
+                {
+                    if(deleteClips)
+                        LibraryData.Unload(LibraryData.calledMedia[i]);
+                    else
+                        LibraryData.SetEnabled(LibraryData.calledMedia[i], false);
+                }
+            }
+            LibraryData.calledMedia.Clear();
         }
         public static void OverlayVideo(string video, string overlay, string chromaKeyColor = "00FF00", string chromaKeySimilarity = "0.3", string chromaKeyBlend = "0.2")
         {
@@ -1807,7 +1811,9 @@ namespace NonsensicalVideoGenerator
                 Global.rolledForOverlay = true;
 
                 // Rename the temporary file to the original file
+                NvgTrace.FileOp("File.Delete", video);
                 File.Delete(video);
+                NvgTrace.FileOp("File.Move", overlayed_video, video);
                 File.Move(overlayed_video, video);
                 //File.Delete(overlay);
             }
@@ -1824,6 +1830,7 @@ namespace NonsensicalVideoGenerator
             {
                 try
                 {
+                    NvgTrace.FileOp("Directory.Delete", temporaryDirectory, true);
                     Directory.Delete(temporaryDirectory, true);
                     ConsoleOutput.WriteLine("Temporary directory deleted.", Color.Gray);
                 }

@@ -300,6 +300,7 @@ namespace NonsensicalVideoGenerator
                     if (!File.ReadAllBytes(libfile.Path).SequenceEqual(File.ReadAllBytes(file.Path)))
                     {
                         ConsoleOutput.WriteLine("Deleting existing library file", Color.Yellow);
+                        NvgTrace.FileOp("File.Delete", libfile.Path);
                         File.Delete(libfile.Path);
                     }
                     else
@@ -368,6 +369,7 @@ namespace NonsensicalVideoGenerator
                 // that contains a list of disabled media paths.
                 DisabledMedia.Remove(file.Path);
                 DisabledMedia.Save();
+                NvgTrace.FileOp("File.Delete", file.Path);
                 File.Delete(file.Path);
                 //if(FileOperationAPIWrapper.Send(file.Path))
                     //libraryFiles.Remove(file);
@@ -525,8 +527,17 @@ namespace NonsensicalVideoGenerator
             }
             string newpath = NvgPaths.Native(Path.Combine(libraryRootPath, libraryPaths[newType]));
             string finalpath = Path.Combine(newpath, Path.GetFileName(source.Path));
+            // A same-folder organize names the file as its own destination.
+            // On a runtime where File.Move throws for that, the catch below would
+            // File.Delete the only copy. Leave the file in place.
+            if (LibraryPathRules.SameFile(source.Path, finalpath))
+            {
+                source.Type = newType;
+                return source;
+            }
             try
             {
+                NvgTrace.FileOp("File.Move", source.Path, finalpath);
                 File.Move(source.Path, finalpath);
             }
             catch
@@ -534,8 +545,13 @@ namespace NonsensicalVideoGenerator
                 // It probably already exists, so try to delete it.
                 try
                 {
+                    if (LibraryPathRules.SameFile(source.Path, finalpath))
+                        throw new IOException("Source and destination are the same file.");
                     libraryFiles.Remove(source);
+                    ConsoleOutput.WriteLine("Replacing existing library file: " + finalpath, Color.Yellow);
+                    NvgTrace.FileOp("File.Delete", finalpath);
                     File.Delete(finalpath);
+                    NvgTrace.FileOp("File.Move", source.Path, finalpath);
                     File.Move(source.Path, finalpath);
                 }
                 catch (Exception e)
@@ -590,7 +606,10 @@ namespace NonsensicalVideoGenerator
                             Directory.CreateDirectory(direxist);
                     }
                     if(File.Exists(path))
+                    {
+                        NvgTrace.FileOp("File.Delete", path);
                         File.Delete(path); // Delete the file if it already exists.
+                    }
                     if(!youtube)
                     {
                         using (WebClient client = new WebClient())

@@ -525,16 +525,35 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
-            File.Copy(combinedSource, combinedDest);
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            // Library files are readable. Copying one into the job is how addons grab a clip.
+            if (!LibraryPathRules.CanCopyFrom(jobDirectory, LibraryRootPath(), replacedSource))
+            {
+                RefuseLibraryChange(replacedSource);
+                return;
+            }
+            // The destination must stay in the job. A library destination would overwrite stock media.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedDest);
+                return;
+            }
+            File.Copy(ResolvedPath(replacedSource), ResolvedPath(replacedDest));
         }
         // FileDelete for lua
         public static void FileDelete(string path)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
+                NvgTrace.FileOp("File.Delete", combinedPath);
                 File.Delete(combinedPath);
         }
         // FileMove for lua
@@ -542,10 +561,34 @@ namespace NonsensicalVideoGenerator
         {
             if (!ValidateInput(source)) return;
             if (!ValidateInput(dest)) return;
-            string combinedSource = Path.Combine(jobDirectory, ReplacePlaceholders(source));
-            string combinedDest = Path.Combine(jobDirectory, ReplacePlaceholders(dest));
+            string replacedSource = ReplacePlaceholders(source);
+            string replacedDest = ReplacePlaceholders(dest);
+            // Moving either side under the library removes or replaces a library file.
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedSource)
+                || !LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedDest))
+            {
+                RefuseLibraryChange(replacedSource + " -> " + replacedDest);
+                return;
+            }
+            string combinedSource = ResolvedPath(replacedSource);
             if (File.Exists(combinedSource))
-                File.Move(combinedSource, combinedDest);
+                NvgTrace.FileOp("File.Move", combinedSource, ResolvedPath(replacedDest));
+                File.Move(combinedSource, ResolvedPath(replacedDest));
+        }
+        // Placeholder values such as ../.././library/... are invisible to ValidateInput.
+        // Destructive ops refuse anything under the library root, or outside the job.
+        static string LibraryRootPath()
+        {
+            return Path.GetFullPath(Path.Combine(AppPaths.Writable, "library"));
+        }
+        static string ResolvedPath(string replacedPath)
+        {
+            return LibraryPathRules.ResolveReplaced(jobDirectory, replacedPath) ?? Path.Combine(jobDirectory, replacedPath);
+        }
+        static void RefuseLibraryChange(string replacedPath)
+        {
+            ConsoleOutput.WriteLine("An addon attempted to modify a library file or a file outside the job.", Color.Red);
+            ConsoleOutput.WriteLine("Offending command: " + replacedPath, Color.Red);
         }
         // FileExists for lua
         public static bool FileExists(string path)
@@ -577,8 +620,15 @@ namespace NonsensicalVideoGenerator
         public static void WriteFile(string path, string contents)
         {
             if (!ValidateInput(path)) return;
-            string combinedPath = Path.Combine(jobDirectory, ReplacePlaceholders(path));
+            string replacedPath = ReplacePlaceholders(path);
+            if (!LibraryPathRules.CanAlter(jobDirectory, LibraryRootPath(), replacedPath))
+            {
+                RefuseLibraryChange(replacedPath);
+                return;
+            }
+            string combinedPath = ResolvedPath(replacedPath);
             if (File.Exists(combinedPath))
+                NvgTrace.FileOp("File.Delete", combinedPath);
                 File.Delete(combinedPath);
             File.WriteAllText(combinedPath, contents);
         }
@@ -927,6 +977,7 @@ namespace NonsensicalVideoGenerator
             // Delete job path if it already exists
             if (Directory.Exists(jobPath))
             {
+                NvgTrace.FileOp("Directory.Delete", jobPath, true);
                 Directory.Delete(jobPath, true);
             }
             Directory.CreateDirectory(jobPath);
@@ -1442,6 +1493,7 @@ namespace NonsensicalVideoGenerator
             if (pluginSettings == null)
             {
                 // Delete invalid settings file.
+                NvgTrace.FileOp("File.Delete", pluginSettingsPath);
                 File.Delete(pluginSettingsPath);
                 LoadPluginSettings();
                 return;
@@ -1578,6 +1630,7 @@ namespace NonsensicalVideoGenerator
                                     {
                                         ConsoleOutput.WriteLine($"Deleting Addon {basename} because it is not subscribed to.", Color.Red);
                                         // Remove entire directory, as it contains theme files.
+                                        NvgTrace.FileOp("Directory.Delete", path, true);
                                         Directory.Delete(path, true);
                                     }
                                 }
@@ -1637,6 +1690,7 @@ namespace NonsensicalVideoGenerator
                         // Delete files currently in plugin folder.
                         foreach (string file in Directory.GetFiles(itemPath))
                         {
+                            NvgTrace.FileOp("File.Delete", file);
                             File.Delete(file);
                         }
                         if(Directory.Exists(folder) == true)
@@ -1655,6 +1709,7 @@ namespace NonsensicalVideoGenerator
                                 }
                                 if(File.Exists(dest))
                                 {
+                                    NvgTrace.FileOp("File.Delete", dest);
                                     File.Delete(dest);
                                 }
                                 File.Copy(file, dest);
@@ -1940,6 +1995,7 @@ namespace NonsensicalVideoGenerator
                 string temppath = Path.Combine(destDirName, file.Name);
                 if(File.Exists(temppath))
                 {
+                    NvgTrace.FileOp("File.Delete", temppath);
                     File.Delete(temppath);
                 }
                 file.CopyTo(temppath, false);
@@ -2156,6 +2212,7 @@ namespace NonsensicalVideoGenerator
             string publishFile = Path.Combine(Path.GetDirectoryName(plugin.path) ?? "", ".publish");
             if(File.Exists(publishFile))
             {
+                NvgTrace.FileOp("File.Delete", publishFile);
                 File.Delete(publishFile);
             }
             if(createItemResult == null)
