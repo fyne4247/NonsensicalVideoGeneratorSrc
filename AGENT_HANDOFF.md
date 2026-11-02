@@ -803,3 +803,10 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 ## Owner-initiated quit — 2026-11-02 01:10 UTC
 - Owner reports accidentally quitting the app. Notified Opus and workers hard-13/14/15 immediately. The matching exit must not be counted as a spontaneous crash; independently evidenced separate crashes still require investigation. No PID was supplied, so correlate the test instance/time rather than assuming all process exits are explained.
 - Preserve affected evidence; coordinate subsequent GUI launches and keep reproduction in disposable roots. No files other than this handoff changed.
+
+## Opus review: hard-15 round 1 (needs fix)
+
+- Worktree only, no commit yet (base e5a3295). Done well: static PIC LAME 3.100 (sha256 ddfe36ca…, LGPL-2.0) built into FFmpeg n7.1.1 `--enable-libmp3lame` on Mac and Linux. Package audit/smoke fail without libmp3lame. Stock-plugin capability inventory (encoders libx264/aac/libmp3lame/pcm_s16le/png; 25 filters; mp3/mp4/wav/image2/ogg/concat/lavfi) is all present in both bundled builds. The spadinner chain (silence.mp3 → combinedspadinner.mp3 → spadinner.mp4) passes end to end on Mac and Linux. NvgMedia 12/12, NvgPlatform 58/58.
+- Defect: it overwrote the tracked `content/music/theme1/2/4.ogg` and `content/themes/halloween/music/theme1.ogg` against the correction. Fix round: restore them, generate derived headroom assets at build time with a provenance manifest (or apply headroom at load time), and test the derived output.
+- Granted: `src/backend/platform/ToolPaths.cs` (RequiredEncoders += libmp3lame; RequiredFilters += the stock filters) and the doc edits it already made (README platform section, MACOS/LINUX_BUILD_INSTRUCTIONS).
+- Loudness note for the owner check: plain gain drops theme1 from −12.3 to −21.8 LUFS (−9.5 dB) and halloween theme1 by −8.4 dB. After the change the tracks sit between −17 and −22 LUFS. The owner judges by ear whether that's too quiet.
