@@ -1121,3 +1121,13 @@ Windows failures, 9, classified from their messages; none is an app failure on t
 - Deferred, not fixed: temp.mp4 listing, menu music start/stop, EAGAIN on macOS (MediaPreview transcode stays), dormant publish-page bug, add-on lookup failures (looks like a transient OS lookup; not established).
 
 **Disclosure (mine):** my VM shutdown command on the 750 contained a stray `rm -f /dev/null`, run without sudo. It had no effect: checked afterwards, `/dev/null` is still the root-owned character device and works. It should not have been there. Also: the first VM start failed on KVM permission; `sudo -g kvm` was refused; owner logged in at the 750, which granted access. My first Windows script reported exit 0 although `dotnet` wasn't found; nothing had run, and I reran it properly. A stray swtpm from my failed start was stopped by PID. VM shut down; ollama running again (its state when I started). VM kept `nvgtest-bf93617`, `nvgprobe-*`, scripts; nothing deleted there.
+
+## Opus: Windows final, team f658747
+
+Sol's test diffs (c6968f4, f658747) reviewed: fine. Windows VM, fresh `git archive` in `C:\Users\Quickemu\nvgtest-f658747`:
+- WindowsDX `dotnet build -c Debug`: 0 errors, 5 warnings.
+- NvgPlatform.Tests: 100 pass, 12 skip, 0 fail. NvgMedia.Tests: 21 pass, 9 skip, 0 fail, including the 3 MediaGuard tests with real tools.
+- Tools: `ffmpeg.exe` and `ffprobe.exe` from gyan.dev `ffmpeg-release-full.7z` (README's source), published sha256 F0E46253…1B13 matched, in user-local `C:\Users\Quickemu\nvg-test-tools`, on PATH for the test process only. Version 9.0.2, **not** the FFmpeg 7.1 the bundled DLLs use: this proves the guard against a real probe, not that exact pairing. No installer or system change.
+- Skips are POSIX-only tests. Decoder proof on Windows is the 20x LoadProbe at bf93617; the DLL is hash-pinned and unchanged since.
+- README requires both tools in `baseroot/bin` for source builds. What Steam installs contain is not verified.
+- Windows real-window playback still not verified. VM shut down; ollama running as found. Nothing deleted in the VM.
