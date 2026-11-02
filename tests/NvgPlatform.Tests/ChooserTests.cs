@@ -38,8 +38,8 @@ public sealed class ChooserTests
             NativeCommand? command = PlatformFileDialog.Plan("macos", "Pick", "*.mp4", false, null, _ => true);
             Assert.NotNull(command);
             string script = command.Value.Arguments[1];
-            Assert.Contains(Path.GetFullPath(used), script);
-            Assert.DoesNotContain(Path.GetFullPath(shared), script);
+            Assert.Contains(ScriptPath(used), script);
+            Assert.DoesNotContain(ScriptPath(shared), script);
 
             PlatformFileDialog.ResetChooserForTests();
             PlatformFileDialog.MoviesFolder = () => movies;
@@ -47,14 +47,14 @@ public sealed class ChooserTests
             Assert.Equal(Path.GetFullPath(movies), PlatformFileDialog.ResolveStart(null));
             NativeCommand? sharedStart = PlatformFileDialog.Plan("macos", "Pick", "*.mp4", false, shared, _ => true);
             Assert.NotNull(sharedStart);
-            Assert.Contains(Path.GetFullPath(movies), sharedStart.Value.Arguments[1]);
-            Assert.DoesNotContain(Path.GetFullPath(shared), sharedStart.Value.Arguments[1]);
+            Assert.Contains(ScriptPath(movies), sharedStart.Value.Arguments[1]);
+            Assert.DoesNotContain(ScriptPath(shared), sharedStart.Value.Arguments[1]);
 
             PlatformFileDialog.ResetChooserForTests();
             PlatformFileDialog.MoviesFolder = () => movies;
             NativeCommand? fresh = PlatformFileDialog.Plan("macos", "Pick", "*.mp4", false, null, _ => true);
             Assert.NotNull(fresh);
-            Assert.Contains(Path.GetFullPath(movies), fresh.Value.Arguments[1]);
+            Assert.Contains(ScriptPath(movies), fresh.Value.Arguments[1]);
             Assert.DoesNotContain("Shared", fresh.Value.Arguments[1], StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -69,8 +69,14 @@ public sealed class ChooserTests
         var first = new ScriptedChooser();
         var second = new ScriptedChooser();
         int which = 0;
+        string? oldPath = Environment.GetEnvironmentVariable("PATH");
+        string fakeBin = Path.Combine(box.Root, "fake-chooser-bin");
+        Directory.CreateDirectory(fakeBin);
+        // Discovery sees the helper, but LaunchOverride supplies the fake process on every OS.
+        File.WriteAllText(Path.Combine(fakeBin, "osascript"), "fake chooser dependency");
         try
         {
+            Environment.SetEnvironmentVariable("PATH", fakeBin);
             PlatformFileDialog.LaunchOverride = _ => which++ == 0 ? first : second;
             Assert.True(PlatformFileDialog.TryBegin("macos", "First", "*.mp4", true, box.Root, out PlatformFileDialog.FileChooser chooser));
             Assert.False(chooser.Finished);
@@ -86,6 +92,7 @@ public sealed class ChooserTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("PATH", oldPath);
             first.Release(0, "");
             PlatformFileDialog.ResetChooserForTests();
         }
@@ -112,7 +119,7 @@ public sealed class ChooserTests
         }
     }
 
-    [Fact]
+    [PosixFact]
     public void Linux_zenity_then_kdialog_use_the_same_runner()
     {
         string bin = Path.Combine(box.Root, "dialog-bin");
@@ -146,7 +153,7 @@ public sealed class ChooserTests
         }
     }
 
-    [Fact]
+    [PosixFact]
     public void Cancel_leaves_no_chooser_process()
     {
         string bin = Path.Combine(box.Root, "sleep-bin");
@@ -172,6 +179,11 @@ public sealed class ChooserTests
             Environment.SetEnvironmentVariable("PATH", oldPath);
             PlatformFileDialog.ResetChooserForTests();
         }
+    }
+
+    static string ScriptPath(string path)
+    {
+        return Path.GetFullPath(path).Replace("\\", "\\\\");
     }
 
     static void WriteHelper(string path, string marker, string picked)

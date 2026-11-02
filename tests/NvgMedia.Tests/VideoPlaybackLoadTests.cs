@@ -16,6 +16,25 @@ public class VideoPlaybackLoadTests
     }
 
     [Fact]
+    public void Vendored_Player_Files_Match_Pinned_Hashes()
+    {
+        string root = RepoRoot();
+        var hashes = File.ReadAllLines(Path.Combine(root, "tools", "videoplayback", "HASHES.txt"))
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+        Assert.Equal(4, hashes.Count);
+        foreach (string extension in new[] { "dll", "pdb" })
+        {
+            string name = "MonoGame.Extended.VideoPlayback." + extension;
+            string input = Path.Combine(root, "tools", "videoplayback", "input", name);
+            string output = Path.Combine(root, "packages", "MonoGame.Extended.VideoPlayback", name);
+            Assert.Equal(hashes["input-" + extension].ToUpperInvariant(), Hash(input));
+            Assert.Equal(hashes["output-" + extension].ToUpperInvariant(), Hash(output));
+        }
+    }
+
+    [PosixFact]
     public void Patched_Dll_Matches_The_Recorded_Patch()
     {
         var start = new ProcessStartInfo
@@ -37,7 +56,7 @@ public class VideoPlaybackLoadTests
         Assert.Contains("patch check ok", stdout, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [PosixFact]
     public void Direct_Load_Throws_For_Bad_Files_And_Decodes_A_Good_File()
     {
         string probe = BuildProbe();
