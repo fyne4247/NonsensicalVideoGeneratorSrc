@@ -93,6 +93,7 @@ LanaPixel licensed under SIL OFL</AssemblyTrademark>
   <ItemGroup>
     <Compile Remove="ExeWrapper/ExeWrapper.cs" />
     <Compile Remove="tests/**" />
+    <Compile Remove="tools/**" />
     <!-- Generated AssemblyInfo under a DesktopGL obj tree must not be compiled again. -->
     <Compile Remove="obj-desktopgl*/**" />
     <None Remove="obj-desktopgl*/**" />

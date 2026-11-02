@@ -45,7 +45,7 @@ public class MenuMusicHeadroomTests
         Assert.Contains("libmp3lame", notice);
     }
 
-    [Fact]
+    [PosixFact]
     public void DesktopGlPlayedMusicDoesNotClipBeforeGain()
     {
         AssertTempHome();
@@ -59,8 +59,7 @@ public class MenuMusicHeadroomTests
             "content/music/theme5.ogg",
             "content/themes/halloween/music/theme1.ogg",
         };
-        var git = Run(root, "git", "diff", "--exit-code", "--", "content/music", "content/themes");
-        Assert.True(git.ExitCode == 0, "original music files changed:\n" + git.Text);
+        AssertOriginalMusic(root);
         string desktop = File.ReadAllText(Path.Combine(root, "content", "Content.DesktopGL.mgcb"));
         string windows = File.ReadAllText(Path.Combine(root, "content", "Content.mgcb"));
         Assert.Contains("#begin desktopgl-music/music/theme1.ogg", desktop);
@@ -114,8 +113,7 @@ public class MenuMusicHeadroomTests
             Assert.Contains("desktopgl-music-PROVENANCE.txt", contentBuild);
             Assert.Contains("desktopgl-music-PROVENANCE.txt", linuxPkg);
             Assert.Contains("desktopgl-music-PROVENANCE.txt", macPkg);
-            var gitAfter = Run(root, "git", "diff", "--exit-code", "--", "content/music", "content/themes");
-            Assert.True(gitAfter.ExitCode == 0, "prepare rewrote originals:\n" + gitAfter.Text);
+            AssertOriginalMusic(root);
             string measureDir = Path.Combine(outDir, "measure");
             var build = Run(
                 root,
@@ -144,6 +142,38 @@ public class MenuMusicHeadroomTests
         finally
         {
             try { Directory.Delete(outDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void OriginalMusicMatchesPinnedUpstreamBytes()
+    {
+        AssertTempHome();
+        AssertOriginalMusic(RepoRoot());
+    }
+
+    static void AssertOriginalMusic(string root)
+    {
+        // Upstream baseline 58ecdd1. Works in git archives and exported source trees too.
+        var hashes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["basetemplates/defaultlayer/music/theme1.wma"] = "2844f2d87bab12d834154ca8ba5bdd0d716c508dfce766fdbba61684fbad0dac",
+            ["basetemplates/defaultlayer/music/theme2.wma"] = "63ed3e479e238f653ebbbecdb47674ee68afa5a46c24a084e4b078abe7720477",
+            ["basetemplates/defaultlayer/music/theme3.wma"] = "485938a73735c6e47e64a36b4f7dfd8b082be56b268577aedc23198b5292dd87",
+            ["basetemplates/defaultlayer/music/theme4.wma"] = "d6e7b54d9389de77c398c201cf67f4edeb7bd15701524edba1bc4b5b5e29eed2",
+            ["basetemplates/defaultlayer/music/theme5.wma"] = "f49d99ad54cd57faa3e3b4451ada13a2b761e70ee84ebc18102522a706eff60d",
+            ["basetemplates/defaultlayer/music/theme6.wma"] = "d44b675820423588a41e27b43a89d096c2b7f886a48dcf70ca59d80c44cabfe2",
+            ["content/music/theme1.ogg"] = "4aa861c8f669e06af450b515cd17158198a98c6a8d0de9621869ef48bfdb96ee",
+            ["content/music/theme2.ogg"] = "fe683f012ea9eaca8853af5e70ffeb443069177d81167063bccf2b28b677d4a7",
+            ["content/music/theme3.ogg"] = "234b8798424f5777744510ac73d91346e4fb912d9f4e13b792a8b478e015da2a",
+            ["content/music/theme4.ogg"] = "fe2a95605ff0dfc332543905fa00adfda910046a24bd3dfc087bdf60f5ec5eaa",
+            ["content/music/theme5.ogg"] = "6fc5e94fe962a5fe2d78cb658778af58f1bda41023db95a8b171996c28c88c74",
+            ["content/themes/halloween/music/theme1.ogg"] = "6bd75cea9066cd81b9102739287cb7d2d84236f72aa838c2cb26e0b7ecb7ac29",
+        };
+        foreach (var (relative, expected) in hashes)
+        {
+            string path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+            Assert.Equal(expected, Sha256(path));
         }
     }
 
