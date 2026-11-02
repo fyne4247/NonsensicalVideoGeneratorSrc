@@ -1161,3 +1161,10 @@ Stages, in order:
 3. **linux-x64 tarball** on 750, `ssh 750`, with package audit, headless launch if possible.
 4. **osx-x64 DMG** by the full script if disk allows; if not, say so with numbers.
 Report: paths, bytes, sha256, test commands and results, anything not verified. Tests: `dotnet test tests/NvgMedia.Tests` and `tests/NvgPlatform.Tests` on the Mac once first.
+
+## Fork PR authorization and publication hold — 2026-11-02
+- Owner explicitly requested pushing staging to their personal fork and opening a PR against their own main only, never upstream. Verified origin is https://github.com/fyne4247/NonsensicalVideoGeneratorSrc.git (fork of NVGPartners); authenticated owner fyne4247, ADMIN permission. GitHub CLI default repo resolution points upstream, so every future gh write MUST explicitly target fyne4247/NonsensicalVideoGeneratorSrc.
+- Fork currently has only dev at58ecdd1; no remote main. Owner explicitly approved creating main at that same baseline, preserving dev. This remains authorization for the later PR prerequisite, not a request to replace dev/default branch.
+- Latest direct instruction: WAIT until hard-21 completes before pushing. No remote mutation occurred: no staging push, no remote main creation, no PR. Hold all publication until hard-21 completion and Opus consolidated review. Local staging remains4bb53a4; root stays team checkout.
+- When resumed: include any independently approved hard-21 script corrections, synchronize staging locally, create main in the personal fork at58ecdd1 if still absent, push only staging to origin, and open a DRAFT PR with --repo fyne4247/NonsensicalVideoGeneratorSrc --base main and explicit own-fork head. Document remaining UI/data-loss limits. Do not modify upstream or merge main.
+- Pre-publication diff check found an extra EOF blank line in generated Content.DesktopGL.mgcb; no content changed for cosmetic cleanup. Native code/test evidence remains unchanged. NEXT ACTION: wait for actual hard-21 completion/review; do not poll or publish early.
