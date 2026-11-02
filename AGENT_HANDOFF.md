@@ -979,3 +979,60 @@ Harness note: the launcher does not preserve console.txt across launches. Fix be
 - Require regression evidence: interrupted/failing download cannot expose invalid final files; invalid/zero/corrupt media preview/generation/close cannot crash; UI remains responsive while chooser waits/cancels; fullscreen restores; link targets tested without account actions; fresh packages/Windows regression. Do not change DNS/system settings or touch original evidence.
 - Defer preexisting temp.mp4 library listing and menu fade unless a concrete port regression is reproduced. Report deferred behavior plainly. No further owner retest until fixes and review; use copied fixtures only, no cleanup.
 - NEXT ACTION: Opus starts this bounded round, returns consolidated reviewed evidence; Sol integrates only approved work and keeps main untouched until acceptance is met. Nothing pushed/published.
+
+## Opus: triage, completion round (hard-17, hard-18, then hard-19)
+
+All three are hard: wrong guesses here lose media or crash in native code. Staffing: **hard-17 and hard-18 in parallel; hard-19 starts after both are approved and merged.** Reason for the order: hard-19's changes are small but sit in files A and B own (`PluginHandler.cs` call sites), and they call B's new chooser and media-guard APIs. So I give it those leftovers rather than split a file. Deferred, not fixed: temp.mp4 listing, menu music start/stop.
+
+Rules for every worker:
+- Work only in your own worktree. Paths are repo-relative. Never write in the main checkout. Never push, merge to main/dev, or delete branches.
+- Tests use a temp HOME and `NVG_DATA_DIR`, with copied fixtures only. Read-only: `/tmp/nvg-owner-final*` and `/tmp/nvg-owner-r2`. Never write, repair or clean them.
+- Preserve Windows: guard port behaviour with `#if DESKTOPGL` unless the shared change is provably the same on WindowsDX. Say which you did.
+- Build outputs under `/tmp/nvg-<worker>/`. Mac has about 6 GiB free: check `df` before a full package. Do not delete anything you did not create.
+- GUI: one at a time across workers, using `mkdir /tmp/nvg-gui-slot` as the lock, removed when finished. Run GUI checks last. The owner may be at the machine, so keep volume at 10% and quit through the AX menu, never SIGTERM. If macOS refuses focus, report "not verified" with what you tried; do not retry in a loop.
+- New test files only under `tests/NvgPlatform.Tests/` or `tests/NvgMedia.Tests/`. Those projects link source explicitly, so add `Compile Include` lines for new source; merge-conflict-prone lines are fine there and I'll record them.
+- Report: commit hash, test commands run with pass/fail summaries, anything not verified. Don't send progress messages.
+
+### hard-17 (A): atomic downloads
+
+Owns: `src/data/PluginHandler.cs`, `src/data/LibraryData.cs`, new `src/backend/platform/AtomicDownload.cs`, new test files, test csproj lines for them.
+Must not touch: `LibraryPage.cs`, `FramePlayer.cs`, `MediaPreview.cs`, `Generator.cs`, `UserInterface.cs`, `PluginsPage.cs`, `PlatformFileDialog.cs`. Leave the `PlatformFileDialog.OpenFiles` calls and the `steam://` block in PluginHandler alone (hard-19 takes them).
+
+Sites: `PluginHandler.cs:258-260` and `LibraryData.cs:615-617` (`WebClient.DownloadFile` writes the final path). `LibraryData.cs:608-612` **deletes an existing valid file before downloading**, so a failed download destroys it: must be fixed. Also the yt-dlp paths in both files.
+
+Acceptance:
+1. Download to a unique partial on the same volume, with a name the library scan does not list; publish by atomic move only after validation (non-empty, length matches when the server gives one, and media probes successfully for audio/video).
+2. Failure, cancel or process exit leaves no new final file and leaves any valid existing file byte-identical.
+3. Existing 0-byte final file: treated as absent and replaced after a good download. A valid existing file is never overwritten by a failed attempt. Stale partials from a killed process do not appear in the library and are cleaned safely.
+4. `GetRandomLibraryFile` and clip selection do not return 0-byte files. Say what happens when nothing valid remains.
+5. Connect and overall timeouts, and cancellation on app exit, without blocking the UI thread longer than now. No system DNS or network settings changes. The lookup failure seen in the owner's run: find out whether the app contributes (compare with curl and how the download client resolves), and report the finding even if the answer is "not established".
+6. Lua API behaviour unchanged for add-ons on success, including the existing "already exists" case for valid files.
+
+Tests: loopback server only (no internet): success, 404, truncated body, connection dropped mid-body, wrong length, hanging server with timeout, cancel, valid existing file preserved, 0-byte healed, killed-process leftovers. Run `tests/NvgPlatform.Tests` filtered to your new tests plus existing Library/Plugin path tests.
+
+### hard-18 (B): crash guard and chooser
+
+Owns: `src/pages/LibraryPage.cs`, `src/pages/GeneratePage.cs`, `src/data/FramePlayer.cs`, `src/data/MediaPreview.cs`, `src/backend/Generator.cs`, `src/backend/platform/PlatformFileDialog.cs`, new `src/data/MediaGuard.cs`, new test files, test csproj lines for them.
+Must not touch: `PluginHandler.cs`, `LibraryData.cs`, `UserInterface.cs`, `PluginsPage.cs`. Keep the synchronous `PlatformFileDialog.OpenFiles` signature working for PluginHandler; hard-19 moves those call sites. Sites you cannot edit (`UserInterface.cs:372`, `PluginsPage.cs:716`): list them for hard-19.
+
+Evidence: `~/Library/Logs/DiagnosticReports/NonsensicalVideoGenerator-2026-11-02-100733.ips` (read only): SIGSEGV, main thread, libavutil `av_opt_free`, unsymbolicated frames between it and managed code. `VideoHelper.LoadFromFile` is in the vendored VideoPlayback DLL.
+
+Acceptance:
+1. Reproduce first on a copied 0-byte fixture and on a corrupt one (truncated, no moov), through the real load path, and state the actual cause. If it does not reproduce, say so and do not claim the crash is fixed by the guard.
+2. A single guard (`MediaGuard`) rejects missing, zero-length and unprobeable media before any native decoder sees it. Preview, library click, close/stop, and generation with invalid media do not crash and show a message. Generation skips or fails cleanly, and never deletes the file.
+3. Fix any lifetime or thread bug that the stack shows (dispose order, use after free on stop). Prove the same fixtures produce no SIGSEGV, repeated at least 20 open/close cycles.
+4. macOS chooser from LibraryPage: `osascript` runs off the update thread, the UI keeps drawing while it waits, Cancel and app exit end the process with no orphan, only one chooser at a time. Sensible start folder: last used this session, else Movies; never the Shared location. Check how the import copy behaves after picking (a large pick must not freeze the window for its whole duration, or state plainly that it does).
+5. Linux zenity/kdialog paths keep working by the same code path; state what was tested. WindowsDX `ShowDialog` path unchanged.
+
+Tests: unit tests for MediaGuard and the chooser process plan with a fake process, plus a real run for 1-3 and a GUI check for 4, last.
+
+### hard-19 (C): native shell (starts after A and B are merged)
+
+Owns: `src/backend/UserInterface.cs`, `src/pages/PluginsPage.cs`, `src/data/BlogData.cs`, new `src/backend/platform/PlatformUrl.cs`, new `tools/test/`, plus exactly these call sites in `src/data/PluginHandler.cs`: the `PlatformFileDialog.OpenFiles` calls at about lines 2064 and 2099 and the `steam://` block at about 2558.
+Must not touch: other code in the files A and B own.
+
+Acceptance:
+1. DesktopGL fullscreen works and toggles back to the previous window size and position, on the display in use; WindowsDX unchanged. GUI check.
+2. Links: DesktopGL opens `steam://` only when a handler exists, otherwise the https page. Windows keeps `steam://` first and falls back to https only on failure. Tested as URL plans with a fake launcher: no real Steam launch and no Steam account actions.
+3. Guard `UserInterface.cs:372` and `PluginsPage.cs:716` with `MediaGuard`, and move PluginHandler's non-Lua chooser call sites to B's non-blocking API if they run on the update thread. Lua `openFilePicker` stays synchronous: state how it behaves.
+4. `tools/test/`: trace launcher template and watcher. Each launch saves `console.txt` under a timestamped name first, keeps a running copy, allows only one watcher per data root, and hashes files only after their size is stable. It takes target paths as arguments and is proven on a disposable new directory, not on `/tmp/nvg-owner-r2`.
