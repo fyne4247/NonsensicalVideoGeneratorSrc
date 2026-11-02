@@ -783,3 +783,18 @@ Both: tests use temp HOME/NVG_DATA_DIR; delete nothing outside your own temp dir
 
 ## New packaging defect found in the owner log
 - The bundled FFmpeg 7.1.1 has **no libmp3lame**: `Unknown encoder 'libmp3lame'` / `Error opening output file silence.mp3`, which makes `spadinner.lua` fail on every clip ("Failed to apply spadinner.lua to clip 5"). Other mp3 *outputs* used by plugins fail the same way. Fix: build LAME from source into the deps prefix and configure FFmpeg with `--enable-libmp3lame` (macOS + Linux scripts, THIRD_PARTY/LGPL notice), or make the plugins write `.m4a`/`.wav`. Owner chose "bundle everything" earlier, so build LAME. Not yet staffed. It touches `tools/**` and packaging only, so it can be one worker after hard-13/14 are done (no file overlap).
+
+## Owner report: menu music clips on DesktopGL
+
+- Owner (2026-11-02): audible clipping in the **menu screen music** (not in renders).
+- Measured with the bundled ffmpeg `astats`: theme1.ogg +7.25 dBFS, theme2 +7.55, theme3 +3.27, theme5 +3.20, theme4 −4.33, theme6 −1.46 (the `.wma` set in `templates/defaultlayer/music` shows the same peaks). Renders 1–3 peak at −6.2, −0.6 and −2.1 dBFS, so no clipping there.
+- Likely cause: these lossy files decode to float samples above full scale. WindowsDX (Media Foundation → XAudio2, float mix) keeps the headroom. On DesktopGL, MonoGame's Song/NVorbis path converts to 16-bit PCM **before** the OpenAL gain (MusicVolume 50) is applied, so samples above 1.0 hard-clip. Paths: `ThemeManager.cs:263` (wma→ogg on DesktopGL), `ThemeManager.cs:321` (`Song.FromUri`), `UserInterface.cs:314`.
+
+## Opus triage: audio packaging (hard-15)
+
+**hard-15 (Grok 4.7): hard, small.** It needs native build scripts on two machines plus an audio-level judgement.
+- Owns: `tools/**` (including `tools/package/**`, `tools/ffmpeg7/**`, a new `tools/lame/**`), `tools/package/THIRD_PARTY.md`, the music source files used for DesktopGL content (`content/music/*.ogg`, `templates/defaultlayer/music/*.ogg` if any; **not** the `.wma` that Windows uses), `src/data/ThemeManager.cs` (music loading only), and new tests under `tests/NvgMedia.Tests/` (new files + 1 csproj line).
+- Must not touch: hard-13's and hard-14's files (Generator.cs, LibraryData.cs, DisabledMedia.cs, PluginHandler.cs, LibraryPathRules.cs, src/pages/**, FramePlayer.cs, Cache.cs), `UserInterface.cs` (ask first), the Windows `.wma` assets, the main checkout, `/tmp/nvg-owner-final*`.
+- Do: (1) Build LAME from pinned source into the deps prefix and configure FFmpeg with `--enable-libmp3lame` in both the macOS and Linux package builds. Add the licence notice. Prove it with `ffmpeg -encoders | grep mp3lame` and the spadinner `silence.mp3` command line from the owner log. (2) Stop menu-music clipping on DesktopGL without changing Windows: preferably pre-scale the DesktopGL ogg sources so the true peak is ≤ −1 dBFS. Re-encode once from the best available source (no generational loss beyond one encode) and keep the old files in git history. Or apply equivalent headroom in the load path. Report before/after peaks for all 6 tracks and the loudness change (LUFS) so the owner can judge.
+- Tests: `dotnet test tests/NvgMedia.Tests` and `tests/NvgPlatform.Tests` on the Mac; the package scripts' own audits. **No package rebuild for the owner yet.** Opus rebuilds once hard-13/14/15 merge. Headless only; no GUI unless Opus grants the slot (hard-13 has it).
+- Delete nothing, use temp HOME/NVG_DATA_DIR, no sudo/brew, 750 disk is tight (~7.7 GB): stop and report if it runs short.
