@@ -915,3 +915,9 @@ Open / risks:
 - App: `/tmp/nvg-owner-r2/NonsensicalVideoGenerator.app` (ditto from the hard-16 arm64 DMG f88e92cf…, codesign OK). Fresh disposable data root `/tmp/nvg-owner-r2/data`; the original `/tmp/nvg-owner-final` and the evidence copy are untouched.
 - Launcher `/tmp/nvg-owner-r2/Run NVG trace test.command`: `open -n --env NVG_DATA_DIR=… --env NVG_TRACE=1`, and it starts `watch_materials.py` (0.2 s poll of library/video/materials; logs ADD with size+sha256, "!!! GONE" on any removal, a FINAL listing 60 s after the app exits) into `/tmp/nvg-owner-r2/watch.log`.
 - The owner imports copies of their own files (originals stay in their folder). Before/after input hashes: the ADD lines vs FINAL.
+
+## LAME reproducibility correction — Sol, 2026-11-02
+- e6dfec9 normalizes the Apple compiler's arm64- build triplet to aarch64- only when setting cross-build HOST_FLAGS, as required by pinned LAME3.100 config.sub. sh-n and diff-check passed. Independent Opus review requested.
+- Targeted validation used the actual pinned source config.sub at /tmp/nvg-hard16/lame-x64-src/lame-3.100/config.sub: cc reports arm64-apple-darwin27.0.0 (rejected, exit1), normalized aarch64-apple-darwin27.0.0 accepted(exit0), x86_64 target accepted(exit0). Full LAME/package rebuild not repeated for this script-only correction; existing x64 artifact uses the matching manual static build per Opus.
+- hard-16 package table and owner-r2 trace/watcher setup above are recorded as experimental artifacts. Owner-r2 uses a fresh disposable root, never the original evidence. Root cause of owner-reported wipe remains unresolved and blocks main, regardless of watcher/test outcomes until evaluated.
+- NEXT ACTION: Opus reviews e6dfec9 and coordinates the disposable traced retest; require preservation evidence and investigate any GONE event immediately. Nothing pushed/published; no main merge or cleanup.
