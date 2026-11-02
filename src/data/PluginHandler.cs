@@ -67,6 +67,12 @@ namespace NonsensicalVideoGenerator
     }
     public class Command
     {
+        static Command()
+        {
+            // A job-folder addon download can call Fetch before LibraryData is touched.
+            AtomicDownload.FileOpHook = NvgTrace.FileOp;
+        }
+
         public CommandType type;
         public string customCommand = "";
         public string? args;
@@ -282,7 +288,7 @@ namespace NonsensicalVideoGenerator
                     });
                     if (result.AlreadyExisted)
                     {
-                        ConsoleOutput.WriteLine($"File {combinedPath} already exists.", Color.LightBlue);
+                        ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
                         return new string[] { "", "" };
                     }
                     if (!result.Published)
@@ -345,6 +351,11 @@ namespace NonsensicalVideoGenerator
                         process.BeginErrorReadLine();
                         AtomicDownload.DownloadResult result = AtomicDownload.FinishStaged(
                             process, staging, destDir, AddonDownloadShouldStop, ProbeDownloadedMedia, null, default);
+                        if (result.AlreadyExisted)
+                        {
+                            ConsoleOutput.WriteLine($"File {result.FinalPath} already exists.", Color.LightBlue);
+                            return new string[] { "", "" };
+                        }
                         if (!result.Published)
                         {
                             ConsoleOutput.WriteLine("Failed to download: " + result.Detail, Color.Red);

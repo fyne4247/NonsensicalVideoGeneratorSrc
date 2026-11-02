@@ -168,6 +168,11 @@ namespace NonsensicalVideoGenerator
     }
     public static class LibraryData
     {
+        static LibraryData()
+        {
+            AtomicDownload.FileOpHook = NvgTrace.FileOp;
+        }
+
         public static List<LibraryFile> libraryFiles { get; } = new List<LibraryFile>();
         public static string libraryRootPath { get; set; } = @".\library";
         public static Dictionary<LibraryType, string> libraryPaths { get; } = new Dictionary<LibraryType, string>()
@@ -622,6 +627,7 @@ namespace NonsensicalVideoGenerator
                             Directory.CreateDirectory(direxist);
                     }
                     // Do not delete an existing file first. A failed download must leave it byte-identical.
+                    // A different non-empty file is kept. The download is published as "name (2).ext".
                     // A 0-byte final is absent and is replaced only after validation.
                     if(!youtube)
                     {
@@ -633,6 +639,13 @@ namespace NonsensicalVideoGenerator
                             ShouldStop = LibraryDownloadShouldStop,
                             Probe = ProbeDownloadedMedia,
                         });
+                        if (result.AlreadyExisted)
+                        {
+                            ConsoleOutput.WriteLine("File " + result.FinalPath + " already exists.", Color.LightBlue);
+                            LibraryPage.Done(true);
+                            Global.justCompletedRender = true;
+                            continue;
+                        }
                         if (!result.Published)
                         {
                             ConsoleOutput.WriteLine("Failed to download clip: " + result.Detail, Color.Red);
@@ -683,6 +696,13 @@ namespace NonsensicalVideoGenerator
                             process.BeginErrorReadLine();
                             AtomicDownload.DownloadResult result = AtomicDownload.FinishStaged(
                                 process, staging, destDir, LibraryDownloadShouldStop, ProbeDownloadedMedia, null, CancellationToken.None);
+                            if (result.AlreadyExisted)
+                            {
+                                ConsoleOutput.WriteLine("File " + result.FinalPath + " already exists.", Color.LightBlue);
+                                LibraryPage.Done(true);
+                                Global.justCompletedRender = true;
+                                continue;
+                            }
                             if (!result.Published)
                             {
                                 ConsoleOutput.WriteLine("Failed to download clip: " + result.Detail, Color.Red);

@@ -15,8 +15,10 @@ namespace NonsensicalVideoGenerator
     /// scan does not list it. The same directory keeps the partial on the same
     /// volume as the final file, so the move is a rename.
     /// Failure, cancel, timeout, and process exit delete the partial and do not
-    /// replace a non-empty final file. A 0-byte final is absent and is replaced
-    /// only after a good download.
+    /// replace a non-empty final file. Identical bytes keep that file. Different
+    /// bytes publish as "name (2).ext". A 0-byte final is absent and is replaced
+    /// only after a good download. The partial itself is a short guid name, so a
+    /// long final name does not grow past the old path length.
     /// DesktopGL and WindowsDX share this path. The move, the length check, and
     /// the partial name are the same on both. ffprobe's stdin pipe is DesktopGL
     /// only, matching the other tool launches.
@@ -49,14 +51,24 @@ namespace NonsensicalVideoGenerator
         static readonly List<CancellationTokenSource> LiveTokens = new();
         static readonly List<Process> LiveTools = new();
 
+        /// <summary>
+        /// Production sets this to <c>NvgTrace.FileOp</c>. Tests set a recorder.
+        /// The hook runs even when NVG_TRACE is unset. NvgTrace filters itself,
+        /// and that is the path that reaches console.txt.
+        /// </summary>
+        public static Action<string, object?[]>? FileOpHook;
+
         static AtomicDownload()
         {
             AppDomain.CurrentDomain.ProcessExit += (_, _) => CancelAll();
         }
 
         /// <summary>
-        /// True when a path segment is one of our partials. The library scan and
-        /// the sweeper both use this. A normal media name does not match.
+        /// True when any path segment is one of our partials. The library scan
+        /// and clip selection use this, so a file inside a staging directory is
+        /// not listed. Sweep and <see cref="DeleteStaging"/> use
+        /// <see cref="IsPartialEntry"/> instead: an ancestor named like a partial
+        /// must not delete the tree under it.
         /// </summary>
         public static bool IsPartialPath(string? path)
         {
@@ -72,6 +84,24 @@ namespace NonsensicalVideoGenerator
                 if (segment.EndsWith(PartialMarker, StringComparison.OrdinalIgnoreCase))
                     return true;
             }
+            return false;
+        }
+
+        /// <summary>
+        /// True when this entry's own name is a partial. Ancestors do not count.
+        /// </summary>
+        public static bool IsPartialEntry(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+            string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string name = Path.GetFileName(trimmed);
+            if (string.IsNullOrEmpty(name))
+                return false;
+            if (name.StartsWith(PartialMarker, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (name.EndsWith(PartialMarker, StringComparison.OrdinalIgnoreCase))
+                return true;
             return false;
         }
 
@@ -149,28 +179,40 @@ namespace NonsensicalVideoGenerator
         public static string CreateStaging(string destinationDirectory)
         {
             Directory.CreateDirectory(destinationDirectory);
-            string staging = Path.Combine(destinationDirectory, PartialMarker + "-" + Guid.NewGuid().ToString("N"));
-            Mark(staging);
-            try
+            for (int attempt = 0; attempt < 8; attempt++)
             {
-                Directory.CreateDirectory(staging);
-                return staging;
+                // Eight hex digits. The old 32-digit suffix sat next to the final
+                // name and could push a long name past NAME_MAX.
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                string staging = Path.Combine(destinationDirectory, PartialMarker + "-" + suffix);
+                if (Directory.Exists(staging) || File.Exists(staging))
+                    continue;
+                Mark(staging);
+                try
+                {
+                    Directory.CreateDirectory(staging);
+                    return staging;
+                }
+                catch (Exception)
+                {
+                    Unmark(staging);
+                    throw;
+                }
             }
-            catch (Exception)
-            {
-                Unmark(staging);
-                throw;
-            }
+            throw new IOException("staging");
         }
 
         public static void DeleteStaging(string? staging)
         {
-            if (string.IsNullOrWhiteSpace(staging) || !IsPartialPath(staging))
+            if (string.IsNullOrWhiteSpace(staging) || !IsPartialEntry(staging))
                 return;
             try
             {
                 if (Directory.Exists(staging))
+                {
+                    Trace("Directory.Delete", staging);
                     Directory.Delete(staging, true);
+                }
             }
             catch (Exception)
             {
@@ -251,9 +293,9 @@ namespace NonsensicalVideoGenerator
             string? destinationDir = Path.GetDirectoryName(request.FinalPath);
             if (string.IsNullOrEmpty(destinationDir))
                 destinationDir = ".";
-            string partial = Path.Combine(
-                destinationDir,
-                Path.GetFileName(request.FinalPath) + "." + Guid.NewGuid().ToString("N") + PartialMarker);
+            // Short name, no original filename. A 240-character final plus the
+            // old 41-character suffix exceeded NAME_MAX and Windows MAX_PATH.
+            string partial = Path.Combine(destinationDir, Guid.NewGuid().ToString("N") + PartialMarker);
             Mark(partial);
             TimeSpan overall = request.OverallTimeout ?? DefaultOverallTimeout;
             using var timeout = new CancellationTokenSource(overall);
@@ -311,17 +353,10 @@ namespace NonsensicalVideoGenerator
                     if (!probed)
                         return DownloadResult.Fail("probe");
                 }
-                try
-                {
-                    Trace("File.Move", partial, request.FinalPath);
-                    File.Move(partial, request.FinalPath, overwrite: true);
+                DownloadResult committed = CommitPartial(partial, request.FinalPath);
+                if (committed.Published)
                     published = true;
-                }
-                catch (Exception ex)
-                {
-                    return DownloadResult.Fail("move " + ex.Message);
-                }
-                return DownloadResult.Ok(request.FinalPath);
+                return committed;
             }
             catch (OperationCanceledException)
             {
@@ -500,9 +535,12 @@ namespace NonsensicalVideoGenerator
                 return DownloadResult.Fail("empty");
             var published = new List<string>();
             string failure = "empty";
+            string identical = "";
+            int identicalCount = 0;
+            bool sawFailure = false;
             foreach (string source in Directory.GetFiles(stagingDirectory, "*", SearchOption.AllDirectories))
             {
-                if (IsReparse(source) || IsPartialPath(Path.GetFileName(source)))
+                if (IsReparse(source) || IsPartialEntry(source))
                     continue;
                 if (!PublishableOutput(source))
                     continue;
@@ -510,6 +548,7 @@ namespace NonsensicalVideoGenerator
                 if (!info.Exists || info.Length <= 0)
                 {
                     failure = "empty";
+                    sawFailure = true;
                     continue;
                 }
                 if (NeedsProbe(source))
@@ -526,24 +565,178 @@ namespace NonsensicalVideoGenerator
                     if (!ok)
                     {
                         failure = "probe";
+                        sawFailure = true;
                         continue;
                     }
                 }
                 string destination = Path.Combine(destinationDirectory, Path.GetFileName(source));
+                DownloadResult committed = CommitPartial(source, destination);
+                if (committed.AlreadyExisted)
+                {
+                    identical = committed.FinalPath;
+                    identicalCount++;
+                    continue;
+                }
+                if (!committed.Published)
+                {
+                    failure = string.IsNullOrEmpty(committed.Detail) ? "move" : committed.Detail;
+                    sawFailure = true;
+                    continue;
+                }
+                published.Add(committed.FinalPath);
+            }
+            if (published.Count > 0)
+                return DownloadResult.OkMany(published);
+            if (!sawFailure && identicalCount > 0)
+                return DownloadResult.Exists(identical);
+            return DownloadResult.Fail(failure);
+        }
+
+        /// <summary>
+        /// Moves <paramref name="source"/> onto <paramref name="desiredPath"/> only
+        /// when that file is missing or 0 bytes. Identical non-empty bytes stay
+        /// put. Different bytes land on the next free "name (n).ext".
+        /// </summary>
+        static DownloadResult CommitPartial(string source, string desiredPath)
+        {
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                string target;
                 try
                 {
-                    Trace("File.Move", source, destination);
-                    File.Move(source, destination, overwrite: true);
-                    published.Add(destination);
+                    target = NextPublishPath(source, desiredPath, out bool identical);
+                    if (identical)
+                        return DownloadResult.Exists(target);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    failure = "move";
+                    return DownloadResult.Fail("move " + ex.Message);
+                }
+                try
+                {
+                    PublishMove(source, target);
+                    return DownloadResult.Ok(target);
+                }
+                catch (IOException)
+                {
+                    if (!File.Exists(source))
+                    {
+                        if (File.Exists(target))
+                            return DownloadResult.Ok(target);
+                        return DownloadResult.Fail("move");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return DownloadResult.Fail("move " + ex.Message);
                 }
             }
-            if (published.Count == 0)
-                return DownloadResult.Fail(failure);
-            return DownloadResult.OkMany(published);
+            return DownloadResult.Fail("move");
+        }
+
+        static string NextPublishPath(string source, string desiredPath, out bool identical)
+        {
+            identical = false;
+            if (!NonEmpty(desiredPath))
+                return desiredPath;
+            if (SameBytes(source, desiredPath))
+            {
+                identical = true;
+                return desiredPath;
+            }
+            string directory = Path.GetDirectoryName(desiredPath) ?? "";
+            if (directory.Length == 0)
+                directory = ".";
+            string stem = Path.GetFileNameWithoutExtension(desiredPath);
+            string extension = Path.GetExtension(desiredPath);
+            for (int n = 2; n < 10000; n++)
+            {
+                string candidate = Path.Combine(
+                    directory,
+                    stem + " (" + n.ToString(CultureInfo.InvariantCulture) + ")" + extension);
+                if (!NonEmpty(candidate))
+                    return candidate;
+                if (SameBytes(source, candidate))
+                {
+                    identical = true;
+                    return candidate;
+                }
+            }
+            throw new IOException("no free name");
+        }
+
+        static void PublishMove(string source, string target)
+        {
+            if (File.Exists(target))
+            {
+                var info = new FileInfo(target);
+                if (info.Length != 0)
+                    throw new IOException("destination is not empty");
+                Trace("File.Move", source, target);
+                File.Move(source, target, overwrite: true);
+                return;
+            }
+            Trace("File.Move", source, target);
+            File.Move(source, target, overwrite: false);
+        }
+
+        static bool NonEmpty(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                return info.Exists && info.Length > 0;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        static bool SameBytes(string left, string right)
+        {
+            try
+            {
+                var leftInfo = new FileInfo(left);
+                var rightInfo = new FileInfo(right);
+                if (!leftInfo.Exists || !rightInfo.Exists || leftInfo.Length <= 0 || leftInfo.Length != rightInfo.Length)
+                    return false;
+                using var leftStream = new FileStream(left, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var rightStream = new FileStream(right, FileMode.Open, FileAccess.Read, FileShare.Read);
+                byte[] leftBuffer = new byte[81920];
+                byte[] rightBuffer = new byte[81920];
+                while (true)
+                {
+                    int leftRead = ReadChunk(leftStream, leftBuffer);
+                    int rightRead = ReadChunk(rightStream, rightBuffer);
+                    if (leftRead != rightRead)
+                        return false;
+                    if (leftRead == 0)
+                        return true;
+                    for (int i = 0; i < leftRead; i++)
+                    {
+                        if (leftBuffer[i] != rightBuffer[i])
+                            return false;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        static int ReadChunk(Stream stream, byte[] buffer)
+        {
+            int filled = 0;
+            while (filled < buffer.Length)
+            {
+                int read = stream.Read(buffer, filled, buffer.Length - filled);
+                if (read == 0)
+                    break;
+                filled += read;
+            }
+            return filled;
         }
 
         static bool RunProbe(Func<string, bool>? probe, string path)
@@ -614,12 +807,13 @@ namespace NonsensicalVideoGenerator
             {
                 if (IsReparse(child))
                     continue;
-                if (IsPartialPath(child))
+                if (IsPartialEntry(child))
                 {
                     if (IsActive(child))
                         continue;
                     try
                     {
+                        Trace("Directory.Delete", child);
                         Directory.Delete(child, true);
                         removed++;
                     }
@@ -641,7 +835,7 @@ namespace NonsensicalVideoGenerator
             }
             foreach (string file in files)
             {
-                if (IsReparse(file) || !IsPartialPath(file) || IsActive(file))
+                if (IsReparse(file) || !IsPartialEntry(file) || IsActive(file))
                     continue;
                 if (TryDeleteFile(file))
                     removed++;
@@ -722,7 +916,7 @@ namespace NonsensicalVideoGenerator
             {
                 if (!File.Exists(path))
                     return false;
-                Trace("File.Delete", path, "");
+                Trace("File.Delete", path);
                 File.Delete(path);
                 return true;
             }
@@ -732,11 +926,18 @@ namespace NonsensicalVideoGenerator
             }
         }
 
-        static void Trace(string op, string left, string right)
+        static void Trace(string op, params object?[] parts)
         {
-            if (Environment.GetEnvironmentVariable("NVG_TRACE") != "1")
+            Action<string, object?[]>? hook = FileOpHook;
+            if (hook == null)
                 return;
-            Console.WriteLine("NVG_TRACE " + op + " " + left + " " + right);
+            try
+            {
+                hook(op, parts);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         static void Mark(string path)
@@ -831,7 +1032,9 @@ namespace NonsensicalVideoGenerator
 
             /// <summary>
             /// When true, a non-empty final file is returned as already existing
-            /// and is not opened. A 0-byte file is still replaced after a good download.
+            /// before any network. A 0-byte file is still replaced after a good download.
+            /// Publish checks again either way, so a file that appears during the
+            /// transfer is kept when the bytes match and is not overwritten when they do not.
             /// </summary>
             public bool KeepValidExisting { get; init; }
 
