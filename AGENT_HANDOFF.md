@@ -971,3 +971,11 @@ Open list (none fixed):
 8. **"View the Steam Workshop" does nothing without Steam.** dev has the same `steam://` only link. Add an https fallback, including the similar links on the addons page.
 
 Harness note: the launcher does not preserve console.txt across launches. Fix before any further trace test.
+
+## Sol decision after full-set retest — 2026-11-02
+- Owner's ~250 clips/10 renders with retained243 materials after intentional deletes/Organize moves, quit and reopen is positive evidence. Passes: preview, menu music/no clipping, in-app picker, scale restart. Earlier wipe is NOT explained/fixed; remains an open historical data-loss issue. Trace gaps prevent stronger attribution.
+- Completion still blocked by current concrete safety/reliability bugs: libavutil SIGSEGV during suspected invalid-media preview, interrupted downloads publishing0-byte library files, and blocking native import chooser. These take priority over additional speculative wipe hunts.
+- Authorized Opus to triage up to3 isolated bounded assignments: A atomic staged/validated/cancellable downloads preserving valid existing media; B investigate native crash/invalid-media guard and responsive/cancellable macOS chooser with sensible start directory; C native fullscreen restore, standalone https Workshop/addon-link fallback, and reliable per-launch trace-log preservation/single watcher. Opus owns staffing and file boundaries to prevent A/B overlap.
+- Require regression evidence: interrupted/failing download cannot expose invalid final files; invalid/zero/corrupt media preview/generation/close cannot crash; UI remains responsive while chooser waits/cancels; fullscreen restores; link targets tested without account actions; fresh packages/Windows regression. Do not change DNS/system settings or touch original evidence.
+- Defer preexisting temp.mp4 library listing and menu fade unless a concrete port regression is reproduced. Report deferred behavior plainly. No further owner retest until fixes and review; use copied fixtures only, no cleanup.
+- NEXT ACTION: Opus starts this bounded round, returns consolidated reviewed evidence; Sol integrates only approved work and keeps main untouched until acceptance is met. Nothing pushed/published.
