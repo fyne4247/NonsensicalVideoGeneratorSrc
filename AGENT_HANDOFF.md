@@ -922,3 +922,23 @@ Open / risks:
 - hard-16 package table and owner-r2 trace/watcher setup above are recorded as experimental artifacts. Owner-r2 uses a fresh disposable root, never the original evidence. Root cause of owner-reported wipe remains unresolved and blocks main, regardless of watcher/test outcomes until evaluated.
 - NEXT ACTION: Opus reviews e6dfec9 and coordinates the disposable traced retest; require preservation evidence and investigate any GONE event immediately. Nothing pushed/published; no main merge or cleanup.
 - Sol fix e6dfec9 (LAME arm64→aarch64 build triplet) reviewed: correct. Opus ran LAME 3.100 `configure` (copy of the pinned source, scratch dir) with `--host=x86_64-apple-darwin27.0.0 --build=aarch64-apple-darwin27.0.0`, CC=clang -arch x86_64: exit 0. A full script-driven osx-x64 package rebuild has not been repeated.
+
+## Opus: owner retest #2, first session (2026-11-02, build f88e92cf)
+
+Status: **wipe gate stays OPEN.** The session did not reach the original conditions: 10 clips (about 109 before) and one finished render (three before). Logs copied to `/tmp/nvg-owner-r2/run1-logs/` before any relaunch.
+
+Results:
+- Materials: 10/10 present after the app exited, including after the owner quit during a render. No GONE lines, and no NVG_TRACE file operation names `materials`.
+- Watcher limit: three FINAL lines show the empty-file hash (e3b0...) because the watcher hashes on first sight while the import copy is still running. Those files have real sizes on disk (978904, 2128443, 1535632). Do not read those lines as data loss.
+- `renders/temp.mp4` is existing behaviour, not a port regression: the main render path keeps the default `tempOutput` (`src/backend/Generator.cs:59`; the assignment at :1269 is on the effect-test path) and `LibraryData.Load` copies it to RenderN. Render1.mp4 and temp.mp4 have the same hash, TotalVideosRendered is 1, and the frozen evidence shows the same pair. The owner sees "temp" in the library and reports the render did not seem to count. Exactly what the library showed after restart is not established; console.txt holds only the last launch.
+
+New defects, not fixed:
+1. **Empty library file left after quitting during a download.** `client.DownloadFile` writes straight to the final path (`src/data/PluginHandler.cs:258-260`). `fear/eknoz9.mp4` (09:58:07) is 0 bytes and the app exited about 09:58:30. A failed download did not leave a file: eknoz9 was attempted at 09:56 and downloaded again at 09:58. `fear/3wtjqk.mp4` (09:52:08) is also 0 bytes and fails thumbnailing at startup; the cause is inferred to be the same, because the console for that launch was overwritten. The File.Exists check at the top of that path should then skip the bad file on later runs (from reading the code, not tested). Suggested fix: download to a temp name, then move.
+2. **Fullscreen does not work on DesktopGL (owner report, low priority for the owner).** `SetFullscreen` (`src/backend/UserInterface.cs`) sets borderless and a screen-sized resolution, positions the window only under WINDOWSDX, and never sets `IsFullScreen`. Likely cause from reading the code; not tested.
+3. **Add-on downloads failed with a name lookup error** (`nodename nor servname provided`, github.com:443) for distort, boom and fear, at about 30 s each by job timestamps. curl from Terminal returned 200 for the three files about 3 minutes later. App or owner's connection: not established.
+
+Expected, not defects: spadinner and randomsound fail with `-i ""` because this fresh library has no matching audio.
+
+Owner also reports: UI size change works after restart. Preview, picker and menu-music results not yet reported.
+
+Next: same data root, full clip set, at least 3 finished renders, then quit normally.
