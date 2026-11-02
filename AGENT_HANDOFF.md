@@ -909,3 +909,9 @@ Open / risks:
 - Worker-reported: 6/6 locales; codesign OK on both apps; the dll has MediaPreview/ApplyCalledMediaLimit/AudioOutputFollower (UTF-8) and NVG_TRACE (UTF-16 literal); `ffmpeg -encoders` lists libmp3lame in all three; `desktopgl-music-PROVENANCE.txt` in Content/ and ThirdParty/; played music 0 clamps; audits "native library audit ok" and "spadinner ok"; no Steam/SharpCompress/ZstdSharp binaries.
 - **Script bug (Sol):** `tools/lame/build-lame.sh` passes `--build=$(cc -dumpmachine)` = `arm64-apple-darwin…` when cross-compiling osx-x64 on Apple Silicon, which LAME 3.100's config.sub rejects. Fix: map `arm64-` to `aarch64-` in the build triplet. The osx-x64 DMG uses a hand-built x86_64 static PIC libmp3lame with a matching signature file (reproducible only after the script fix).
 - Left in place (not deleted): failed work dir `/var/folders/.../nvg-macos.9dbR9K`, `/tmp/nvg-hard16/`, `~/nvg-hard16/` (750 now ~3.8 GB free).
+
+## Owner retest #2 setup (trace + watcher), 2026-11-02
+
+- App: `/tmp/nvg-owner-r2/NonsensicalVideoGenerator.app` (ditto from the hard-16 arm64 DMG f88e92cf…, codesign OK). Fresh disposable data root `/tmp/nvg-owner-r2/data`; the original `/tmp/nvg-owner-final` and the evidence copy are untouched.
+- Launcher `/tmp/nvg-owner-r2/Run NVG trace test.command`: `open -n --env NVG_DATA_DIR=… --env NVG_TRACE=1`, and it starts `watch_materials.py` (0.2 s poll of library/video/materials; logs ADD with size+sha256, "!!! GONE" on any removal, a FINAL listing 60 s after the app exits) into `/tmp/nvg-owner-r2/watch.log`.
+- The owner imports copies of their own files (originals stay in their folder). Before/after input hashes: the ADD lines vs FINAL.
