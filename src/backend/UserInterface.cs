@@ -121,6 +121,28 @@ namespace NonsensicalVideoGenerator
             public int Height;
         }
         WindowedFrame? _windowedFrame;
+        Point? _restorePosition;
+        int _restorePositionFrames;
+
+        /// <summary>
+        /// On X11 the window manager reports the new border a few frames after it is
+        /// added, and a position set before then lands lower by the title bar height.
+        /// The position is set once more after that. On macOS this changes nothing.
+        /// </summary>
+        void PumpRestorePosition()
+        {
+            if (!_restorePosition.HasValue)
+                return;
+            if (GlobalGraphics.fullScreen)
+            {
+                _restorePosition = null;
+                return;
+            }
+            if (--_restorePositionFrames > 0)
+                return;
+            Window.Position = _restorePosition.Value;
+            _restorePosition = null;
+        }
 
         /// <summary>
         /// Borderless desktop fullscreen on the display that already holds the window.
@@ -151,18 +173,32 @@ namespace NonsensicalVideoGenerator
             if (!fullscreen)
             {
                 GlobalGraphics.fullScreen = false;
-                Window.IsBorderless = false;
                 _graphics.HardwareModeSwitch = false;
                 _graphics.IsFullScreen = false;
                 AspectRatio windowed = SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio();
                 GlobalGraphics.SetAspectRatio(windowed);
-                if (_windowedFrame.HasValue)
+                WindowedFrame? restore = _windowedFrame;
+                if (restore.HasValue)
                 {
-                    WindowedFrame frame = _windowedFrame.Value;
+                    _graphics.PreferredBackBufferWidth = restore.Value.Width;
+                    _graphics.PreferredBackBufferHeight = restore.Value.Height;
+                }
+                _graphics.ApplyChanges();
+                // SDL ignores a border change while the window is fullscreen, so the
+                // title bar has to be asked for again once the window has left it.
+                Window.IsBorderless = true;
+                Window.IsBorderless = false;
+                if (restore.HasValue)
+                {
+                    WindowedFrame frame = restore.Value;
+                    // Adding the title bar can take its height out of the client area.
+                    // Setting the size again marks it for a second apply.
                     _graphics.PreferredBackBufferWidth = frame.Width;
                     _graphics.PreferredBackBufferHeight = frame.Height;
                     _graphics.ApplyChanges();
                     Window.Position = new Point(frame.X, frame.Y);
+                    _restorePosition = new Point(frame.X, frame.Y);
+                    _restorePositionFrames = 20;
                     ConsoleOutput.WriteLine(
                         "Fullscreen restored to " + frame.Width.ToString(CultureInfo.InvariantCulture) + "x" + frame.Height.ToString(CultureInfo.InvariantCulture)
                         + " at " + frame.X.ToString(CultureInfo.InvariantCulture) + "," + frame.Y.ToString(CultureInfo.InvariantCulture)
@@ -430,6 +466,7 @@ namespace NonsensicalVideoGenerator
             GraphicsThread.Pump();
             AudioOutputFollower.FlushLog(line => ConsoleOutput.WriteLine(line, Color.Transparent));
             PluginHandler.PumpChooser();
+            PumpRestorePosition();
 #endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()

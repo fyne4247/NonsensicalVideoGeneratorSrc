@@ -909,6 +909,7 @@ namespace NonsensicalVideoGenerator
             Global.rolledForOverlay = false;
             Global.usedAllEffectChance = false;
             FramePlayer.Stop();
+            FramePlayer.StopVideo();
             try
             {
                 if(effectTestThreadWorker != null && effectTestThreadWorker.IsBusy)

@@ -407,6 +407,39 @@ namespace NonsensicalVideoGenerator
             }
         }
 #endif
+        /// <summary>
+        /// Stops the in-app video and hides its panel, so a new render does not
+        /// run with the previous one still playing. The boot movie is left alone.
+        /// </summary>
+        public static void StopVideo()
+        {
+            UserInterface? ui = UserInterface.instance;
+            if (ui == null || !ui.introFinished)
+                return;
+            bool wasShowing = Global.videoPlaying || ui.videoPath != "";
+            Global.videoPlaying = false;
+            ui.videoPath = "";
+            try
+            {
+                if (ui.videoPlayer != null && ui.videoPlayer.State != MediaState.Stopped)
+                {
+                    ui.videoPlayer.Stop();
+                    wasShowing = true;
+                }
+            }
+            catch (Exception e)
+            {
+                ConsoleOutput.WriteLine("Failed to stop video: " + e.Message, Color.Red);
+            }
+            canPlayBgMusic = true;
+            if (wasShowing)
+            {
+                ConsoleOutput.WriteLine("Stopped the playing video for a new render.", Color.Transparent);
+                VideoScreen? screen = ScreenManager.GetScreen<VideoScreen>("Video");
+                if (screen != null && screen.screenType != ScreenType.Hidden)
+                    screen.Hide();
+            }
+        }
         public static bool Stop()
         {
 #if DESKTOPGL
