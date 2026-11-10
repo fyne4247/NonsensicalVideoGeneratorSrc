@@ -1,0 +1,27 @@
+#!/bin/sh
+# Launch the bundled linux-x64 build from this directory, following symlinks.
+# LD_LIBRARY_PATH and NVG_FFMPEG_LIB point at the FFmpeg 7 libraries in lib/.
+
+set -eu
+
+SOURCE=$0
+while [ -L "$SOURCE" ]; do
+    LINK_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+    TARGET=$(readlink "$SOURCE")
+    case $TARGET in
+        /*) SOURCE=$TARGET ;;
+        *) SOURCE=$LINK_DIR/$TARGET ;;
+    esac
+done
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+
+if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+    LD_LIBRARY_PATH=$ROOT/lib:$LD_LIBRARY_PATH
+else
+    LD_LIBRARY_PATH=$ROOT/lib
+fi
+export LD_LIBRARY_PATH
+export NVG_FFMPEG_LIB=$ROOT/lib
+
+exec "$ROOT/NonsensicalVideoGenerator" "$@"

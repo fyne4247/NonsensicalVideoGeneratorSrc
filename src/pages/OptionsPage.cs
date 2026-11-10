@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
@@ -625,13 +624,15 @@ namespace NonsensicalVideoGenerator
                 if(oldValue != float.Parse(SaveData.saveValues["ScreenScale"], CultureInfo.InvariantCulture))
                 {
                     SaveData.Save();
-                    // Restart software through steam
-                    ProcessStartInfo startInfo = new ProcessStartInfo();
-                    startInfo.FileName = "steam://run/" + Global.appId.ToString();
-                    startInfo.UseShellExecute = true;
-                    startInfo.Verb = "open";
-                    ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                    Process.Start(startInfo);
+                    // Windows relaunches through Steam. DesktopGL relaunches this install.
+                    AppRestartRequest restart = AppRestart.Plan(
+                        DataRoots.PlatformKind(),
+                        Global.appId.ToString(),
+                        Environment.GetEnvironmentVariable("NVG_DATA_DIR"),
+                        AppContext.BaseDirectory,
+                        Environment.ProcessPath);
+                    ConsoleOutput.WriteLine("> " + AppRestart.FormatCommand(restart), Color.Transparent);
+                    AppRestart.Start(restart);
                     // Close software
                     try
                     {

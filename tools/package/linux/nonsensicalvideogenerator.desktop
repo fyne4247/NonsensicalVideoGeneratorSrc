@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Nonsensical Video Generator
+GenericName=Video generator
+Comment=Nonsensical Video Generator (local build, Steam off)
+Exec="@PREFIX@/nonsensicalvideogenerator"
+Icon=@ICON@
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=NonsensicalVideoGenerator
+# nvg-package-marker=io.github.nvg.NonsensicalVideoGenerator

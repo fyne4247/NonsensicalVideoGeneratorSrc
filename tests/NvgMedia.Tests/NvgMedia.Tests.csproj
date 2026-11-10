@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- MediaGuard closes tool stdin only on DesktopGL. The Mac suite builds that path. -->
+    <DefineConstants>$(DefineConstants);DESKTOPGL</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\PosixFactAttribute.cs" Link="PosixFactAttribute.cs" />
+    <Compile Include="..\..\src\backend\platform\ToolPaths.cs" Link="ToolPaths.cs" />
+    <Compile Include="..\..\src\backend\platform\ProcessTree.cs" Link="ProcessTree.cs" />
+    <Compile Include="..\..\src\backend\platform\FfmpegNative.cs" Link="FfmpegNative.cs" />
+    <Compile Include="..\..\src\data\MediaPreview.cs" Link="MediaPreview.cs" />
+    <Compile Include="..\..\src\data\MediaGuard.cs" Link="MediaGuard.cs" />
+  </ItemGroup>
+</Project>

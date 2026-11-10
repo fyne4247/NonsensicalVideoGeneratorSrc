@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
 using System.Diagnostics;
 
 namespace NonsensicalVideoGenerator
@@ -250,7 +248,7 @@ namespace NonsensicalVideoGenerator
                 switch(i)
                 {
                     case 2: // left click
-                        string renderFolder = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "library", "video", "renders");
+                        string renderFolder = Path.Combine(AppPaths.Writable, "library", "video", "renders");
                         // Get last modified file
                         string lastModifiedFile = "";
                         DateTime lastModified = new(0);
@@ -268,6 +266,19 @@ namespace NonsensicalVideoGenerator
                             LibraryFile file = new LibraryFile(Path.GetFileName(lastModifiedFile), lastModifiedFile, DefaultLibraryTypes.Render, true);
                             if(file.Path != null)
                             {
+                                if (!MediaGuard.CanOpen(file.Path, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string why))
+                                {
+                                    ConsoleOutput.WriteLine(why, Color.Red);
+                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                    try
+                                    {
+                                        GlobalContent.PlaySound("Error");
+                                    }
+                                    catch
+                                    {
+                                    }
+                                    return true;
+                                }
                                 FramePlayer.Stop();
                                 GlobalContent.PlaySound("Select");
                                 if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
@@ -288,10 +299,33 @@ namespace NonsensicalVideoGenerator
                                             UserInterface.instance.video = null;
                                         }
                                         string cachePath = VideoCache.GetCachePath(file.Path);
+                                        if (!MediaGuard.CanOpen(cachePath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string cacheWhy))
+                                        {
+                                            ConsoleOutput.WriteLine(cacheWhy, Color.Red);
+                                            Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                            Global.videoPlaying = false;
+                                            try
+                                            {
+                                                GlobalContent.PlaySound("Error");
+                                            }
+                                            catch
+                                            {
+                                            }
+                                            return true;
+                                        }
+                                        if (!VideoLoad.TryLoad(cachePath, out var loaded, out _))
+                                        {
+                                            UserInterface.instance.video = null;
+                                            UserInterface.instance.videoPath = "";
+                                            Global.videoPlaying = false;
+                                            FramePlayer.canPlayBgMusic = true;
+                                            Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                            return true;
+                                        }
                                         UserInterface.instance.videoPath = cachePath;
-                                        UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+                                        UserInterface.instance.video = loaded;
                                         //UserInterface.instance.videoPlayer.IsLooped = true;
-                                        UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                        UserInterface.instance.videoPlayer.Play(loaded);
                                         Global.videoPlaying = true;
                                         UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                                     }

@@ -26,10 +26,17 @@ namespace NonsensicalVideoGenerator
         public static double readyTime = 0;
         public static bool canRender = false;
         public static List<string> dragDropFiles = new();
+#if DESKTOPGL
+        public static bool useSystemFFmpeg = true;
+        public static bool useSystemFFprobe = true;
+        public static bool useSystemMagick = true;
+        public static bool useSystemYtDlp = true;
+#else
         public static bool useSystemFFmpeg = false;
         public static bool useSystemFFprobe = false;
         public static bool useSystemMagick = false;
         public static bool useSystemYtDlp = false;
+#endif
         public static string editing = "";
         public static AppId_t appId = new(2516360);
         public static string videoTitle = "Render1";

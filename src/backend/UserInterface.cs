@@ -4,9 +4,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Media;
 using System.IO;
+#if WINDOWSDX
 using System.Windows.Forms;
+#endif
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
 using System.Reflection;
 using System.Collections.Generic;
 
@@ -40,7 +41,11 @@ namespace NonsensicalVideoGenerator
         {
             ConsoleOutput.WriteLine("Creating new UserInterface instance...", Color.Transparent);
             _graphics = new GraphicsDeviceManager(this);
+#if DESKTOPGL
+            Content.RootDirectory = DataRoots.ContentDirectory;
+#else
             Content.RootDirectory = "Content";
+#endif
             IsMouseVisible = true;
             instance = this;
             if(Global.parameters.Contains("-unlockfps"))
@@ -73,6 +78,9 @@ namespace NonsensicalVideoGenerator
         }
         public void SetFullscreen(bool fullscreen)
         {
+#if DESKTOPGL
+            SetFullscreenDesktopGl(fullscreen);
+#else
             AspectRatio aspectRatio = new();
             if(SaveData.saveValues["MatchAspectRatio"] == "true")
                 aspectRatio = GlobalGraphics.FindMatchingAspectRatio();
@@ -89,6 +97,7 @@ namespace NonsensicalVideoGenerator
             }
             GlobalGraphics.SetAspectRatio(aspectRatio);
             _graphics.ApplyChanges();
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
@@ -98,30 +107,174 @@ namespace NonsensicalVideoGenerator
                 else
                     CenterToScreen();
             }
+#endif
             if(!fullscreen)
                 GlobalGraphics.SetAspectRatio(SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio());
+#endif
         }
+#if DESKTOPGL
+        struct WindowedFrame
+        {
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
+        }
+        WindowedFrame? _windowedFrame;
+        Point? _restorePosition;
+        int _restorePositionFrames;
+
+        /// <summary>
+        /// On X11 the window manager reports the new border a few frames after it is
+        /// added, and a position set before then lands lower by the title bar height.
+        /// The position is set once more after that. On macOS this changes nothing.
+        /// </summary>
+        void PumpRestorePosition()
+        {
+            if (!_restorePosition.HasValue)
+                return;
+            if (GlobalGraphics.fullScreen)
+            {
+                _restorePosition = null;
+                return;
+            }
+            if (--_restorePositionFrames > 0)
+                return;
+            Window.Position = _restorePosition.Value;
+            _restorePosition = null;
+        }
+
+        /// <summary>
+        /// Borderless desktop fullscreen on the display that already holds the window.
+        /// HardwareModeSwitch stays off so the display mode is not changed.
+        /// Leaving fullscreen puts the window back at the size and position it had before.
+        /// </summary>
+        void SetFullscreenDesktopGl(bool fullscreen)
+        {
+            if (!fullscreen && !GlobalGraphics.fullScreen)
+                return;
+            if (fullscreen && !GlobalGraphics.fullScreen)
+            {
+                int width = _graphics.PreferredBackBufferWidth;
+                int height = _graphics.PreferredBackBufferHeight;
+                if (width <= 0 || height <= 0)
+                {
+                    width = Window.ClientBounds.Width;
+                    height = Window.ClientBounds.Height;
+                }
+                _windowedFrame = new WindowedFrame
+                {
+                    X = Window.Position.X,
+                    Y = Window.Position.Y,
+                    Width = width,
+                    Height = height,
+                };
+            }
+            if (!fullscreen)
+            {
+                GlobalGraphics.fullScreen = false;
+                _graphics.HardwareModeSwitch = false;
+                _graphics.IsFullScreen = false;
+                AspectRatio windowed = SaveData.saveValues["MatchAspectRatio"] == "true" ? GlobalGraphics.FindMatchingAspectRatio() : new AspectRatio();
+                GlobalGraphics.SetAspectRatio(windowed);
+                WindowedFrame? restore = _windowedFrame;
+                if (restore.HasValue)
+                {
+                    _graphics.PreferredBackBufferWidth = restore.Value.Width;
+                    _graphics.PreferredBackBufferHeight = restore.Value.Height;
+                }
+                _graphics.ApplyChanges();
+                // SDL ignores a border change while the window is fullscreen, so the
+                // title bar has to be asked for again once the window has left it.
+                Window.IsBorderless = true;
+                Window.IsBorderless = false;
+                if (restore.HasValue)
+                {
+                    WindowedFrame frame = restore.Value;
+                    // Adding the title bar can take its height out of the client area.
+                    // Setting the size again marks it for a second apply.
+                    _graphics.PreferredBackBufferWidth = frame.Width;
+                    _graphics.PreferredBackBufferHeight = frame.Height;
+                    _graphics.ApplyChanges();
+                    Window.Position = new Point(frame.X, frame.Y);
+                    _restorePosition = new Point(frame.X, frame.Y);
+                    _restorePositionFrames = 20;
+                    ConsoleOutput.WriteLine(
+                        "Fullscreen restored to " + frame.Width.ToString(CultureInfo.InvariantCulture) + "x" + frame.Height.ToString(CultureInfo.InvariantCulture)
+                        + " at " + frame.X.ToString(CultureInfo.InvariantCulture) + "," + frame.Y.ToString(CultureInfo.InvariantCulture)
+                        + " (window now " + Window.ClientBounds.Width.ToString(CultureInfo.InvariantCulture) + "x" + Window.ClientBounds.Height.ToString(CultureInfo.InvariantCulture)
+                        + " at " + Window.Position.X.ToString(CultureInfo.InvariantCulture) + "," + Window.Position.Y.ToString(CultureInfo.InvariantCulture) + ").",
+                        Color.Transparent);
+                }
+                return;
+            }
+            DesktopFullscreen.DisplayBounds[] displays;
+            if (!DesktopFullscreen.TryReadDisplays(out displays) || displays.Length == 0)
+            {
+                DisplayMode mode = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
+                displays = new[]
+                {
+                    new DesktopFullscreen.DisplayBounds(0, 0, mode.Width, mode.Height),
+                };
+            }
+            Rectangle client = Window.ClientBounds;
+            int index = DesktopFullscreen.ChooseIndex(Window.Position.X, Window.Position.Y, client.Width, client.Height, displays);
+            if (index < 0)
+                index = 0;
+            DesktopFullscreen.DisplayBounds chosen = displays[index];
+            int screenWidth = chosen.Width > 0 ? chosen.Width : GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
+            int screenHeight = chosen.Height > 0 ? chosen.Height : GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+            AspectRatio aspectRatio = new();
+            if (SaveData.saveValues["MatchAspectRatio"] == "true")
+                aspectRatio = GlobalGraphics.FindMatchingAspectRatio();
+            float scale = GlobalGraphics.scale;
+            if (scale < 0.01f)
+                scale = 1f;
+            aspectRatio.preferredResolution = new Point((int)(screenWidth / scale), (int)(screenHeight / scale));
+            aspectRatio.drawOffset = new Vector2(
+                (aspectRatio.preferredResolution.X - (GlobalGraphics.scaledWidth / scale)) / 2,
+                (aspectRatio.preferredResolution.Y - (GlobalGraphics.scaledHeight / scale)) / 2);
+            GlobalGraphics.fullScreen = true;
+            Window.IsBorderless = true;
+            _graphics.HardwareModeSwitch = false;
+            _graphics.IsFullScreen = true;
+            GlobalGraphics.SetAspectRatio(aspectRatio);
+            _graphics.PreferredBackBufferWidth = screenWidth;
+            _graphics.PreferredBackBufferHeight = screenHeight;
+            _graphics.ApplyChanges();
+            ConsoleOutput.WriteLine(
+                "Fullscreen on display " + index.ToString(CultureInfo.InvariantCulture)
+                + " " + screenWidth.ToString(CultureInfo.InvariantCulture) + "x" + screenHeight.ToString(CultureInfo.InvariantCulture)
+                + " at " + chosen.X.ToString(CultureInfo.InvariantCulture) + "," + chosen.Y.ToString(CultureInfo.InvariantCulture) + ".",
+                Color.Transparent);
+        }
+#endif
         public void CenterToScreen()
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null && Screen.PrimaryScreen != null)
             {
                 // Place window in center of screen.
                 windowForm.Location = new System.Drawing.Point(Screen.PrimaryScreen.WorkingArea.Width / 2 - windowForm.Width / 2, Screen.PrimaryScreen.WorkingArea.Height / 2 - windowForm.Height / 2);
             }
+#endif
         }
         public void SetAlwaysOnTop(bool alwaysOnTop)
         {
+#if WINDOWSDX
             Form? windowForm = Control.FromHandle(Window.Handle) as Form;
             if(windowForm != null)
             {
                 windowForm.TopMost = alwaysOnTop;
             }
+#endif
         }
         public void SetNativeCursor(bool useNativeCursor)
         {
             IsMouseVisible = useNativeCursor;
         }
+#if WINDOWSDX
         // Drag and drop support.
         private void DragEnter(object? sender, DragEventArgs e)
         {
@@ -142,6 +295,7 @@ namespace NonsensicalVideoGenerator
         {
             Global.dragDrop = false;
         }
+#endif
         protected override void Initialize()
         {
             if (bool.Parse(SaveData.saveValues["EnableDiscordRPC"]))
@@ -162,7 +316,13 @@ namespace NonsensicalVideoGenerator
             }
             ConsoleOutput.WriteLine("Form supports drag and drop.", Color.Transparent);
 #else
-            ConsoleOutput.WriteLine("Form does not support drag and drop.", Color.Transparent);
+            Window.FileDrop += (sender, args) =>
+            {
+                Global.dragDropFiles = args.Files != null ? args.Files.ToList() : new List<string>();
+                Global.dragDrop = false;
+                ConsoleOutput.WriteLine("File drop: " + string.Join(", ", Global.dragDropFiles), Color.Transparent);
+            };
+            ConsoleOutput.WriteLine("DesktopGL file drop registered.", Color.Transparent);
 #endif
             // Set window title.
             Window.Title = Global.productName + " v" + Global.productVersion;
@@ -236,6 +396,10 @@ namespace NonsensicalVideoGenerator
         }
         protected override void UnloadContent()
         {
+#if DESKTOPGL
+            // Join the output follower before OpenAL closes so a reopen cannot race teardown.
+            AudioOutputFollower.StopShared();
+#endif
             if(_spriteBatch != null)
                 _spriteBatch.Dispose();
             // Unload all content.
@@ -267,7 +431,6 @@ namespace NonsensicalVideoGenerator
                 }
                 Global.firstSongPlayed = true;
             }
-#if WINDOWSDX
             else
             {
                 music = ThemeManager.GetNextSongIndex(music);
@@ -294,14 +457,17 @@ namespace NonsensicalVideoGenerator
             {
                 //ConsoleOutput.WriteLine("Failed to play music: " + ex.Message, Color.Red);
             }
-#else
-            _musicState = MusicState.Paused;
-#endif
             SaveData.saveValues["LastMusicTrack"] = music.ToString(CultureInfo.InvariantCulture);
             SaveData.Save();
         }
         protected override void Update(GameTime gameTime)
         {
+#if DESKTOPGL
+            GraphicsThread.Pump();
+            AudioOutputFollower.FlushLog(line => ConsoleOutput.WriteLine(line, Color.Transparent));
+            PluginHandler.PumpChooser();
+            PumpRestorePosition();
+#endif
             L.cyclerTimer += gameTime.ElapsedGameTime.TotalSeconds;
             // DEBUG: Pressing Mouse3 at any time will FindMusic()
             /*
@@ -332,20 +498,51 @@ namespace NonsensicalVideoGenerator
                 try
                 {
                     string? randomBootMovie = PluginHandler.PickRandomBootMovie();
+#if DESKTOPGL
+                    // Plugins are not loaded yet, so the first launch has no PluginSettings.json
+                    // and PickRandomBootMovie returns null. Play the seeded stock movie.
+                    if (string.IsNullOrEmpty(randomBootMovie))
+                    {
+                        string stockBoot = Path.Combine("plugins", "user", "stock", "defaultlogo.mp4");
+                        if (!File.Exists("PluginSettings.json") && File.Exists(stockBoot))
+                            randomBootMovie = stockBoot;
+                    }
+#endif
                     if(randomBootMovie != null && File.Exists(randomBootMovie))
                     {
                         videoPath = VideoCache.GetCachePath(randomBootMovie);
-                        video = VideoHelper.LoadFromFile(videoPath);
-                        // current time + intro duration
-                        introGoal = gameTime.TotalGameTime.TotalSeconds + video.Duration.Seconds + 1;
-                        if(randomBootMovie.ToLower().EndsWith("defaultlogo.mp4"))
+                        if (!MediaGuard.CanOpen(videoPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blockedBoot))
                         {
-                            introGoal -= 0.5;
+                            ConsoleOutput.WriteLine(blockedBoot, Color.Red);
+                            video = null;
+                            videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
+                        }
+                        else if (!VideoLoad.TryLoad(videoPath, out var loaded, out _))
+                        {
+                            // Clear the path and leave introFinished false so this
+                            // same update pushes the intro screen and reaches the menu.
+                            video = null;
+                            videoPath = "";
+                            Global.videoPlaying = false;
+                            FramePlayer.canPlayBgMusic = true;
+                        }
+                        else
+                        {
+                            video = loaded;
+                            // current time + intro duration
+                            introGoal = gameTime.TotalGameTime.TotalSeconds + loaded.Duration.Seconds + 1;
+                            if(randomBootMovie.ToLower().EndsWith("defaultlogo.mp4"))
+                            {
+                                introGoal -= 0.5;
+                            }
                         }
                     }
                     else
                     {
-                        ConsoleOutput.WriteLine("Could not load boot video: " + videoPath, Color.Red);
+                        string shown = string.IsNullOrEmpty(randomBootMovie) ? "(no enabled boot movie)" : Path.GetFullPath(randomBootMovie);
+                        ConsoleOutput.WriteLine("Could not load boot video: " + shown, Color.Red);
                     }
                 }
                 catch (Exception e)
@@ -520,6 +717,9 @@ namespace NonsensicalVideoGenerator
                 args.Cancel = true;
                 return;
             }
+#if DESKTOPGL
+            AudioOutputFollower.StopShared();
+#endif
             base.OnExiting(sender, args);
             if(SteamManager.initialized)
                 SteamManager.Shutdown();

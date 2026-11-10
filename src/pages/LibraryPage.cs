@@ -8,11 +8,8 @@ using System.Diagnostics;
 using System;
 using System.ComponentModel;
 using System.Linq;
-using System.Reflection;
-using System.Windows;
 using System.Globalization;
-using MonoGame.Extended.VideoPlayback;
-using SharpCompress;
+using System.Threading;
 
 namespace NonsensicalVideoGenerator
 {
@@ -45,6 +42,18 @@ namespace NonsensicalVideoGenerator
         private string tooltip = "";
         private bool registered = false;
         private static bool downloading = false;
+#if DESKTOPGL
+        private PlatformFileDialog.FileChooser? pendingChooser;
+        private LibraryType? pendingImportType;
+        private readonly object importGate = new();
+        private bool importCopyRunning;
+        private bool importFinished;
+        private int importOk;
+        private int importFail;
+        private long chooserSeenTick;
+        private bool chooserTickLogged;
+        private List<LibraryFile> importedReady = new();
+#endif
         private static KeyboardState oldKeyboardState;
         private static KeyboardState newKeyboardState;
         private readonly InteractableController actionController = new();
@@ -80,13 +89,18 @@ namespace NonsensicalVideoGenerator
                             if (path.Key == currentLibraryType)
                             {
                                 // Open directory
+                                string folder = Path.GetFullPath(Path.Combine("library", path.Value));
+#if DESKTOPGL
+                                PlatformShell.Open(folder);
+#else
                                 ProcessStartInfo startInfo = new()
                                 {
-                                    FileName = Path.GetFullPath(@"library\" + path.Value),
+                                    FileName = folder,
                                     UseShellExecute = true,
                                 };
                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                 Process.Start(startInfo);
+#endif
                                 return true;
                             }
                         }
@@ -206,6 +220,9 @@ namespace NonsensicalVideoGenerator
                 ChangeVideos(spriteBatch.GraphicsDevice);
                 changed = false;
             }
+#if DESKTOPGL
+            PumpThumbnailUploads(spriteBatch.GraphicsDevice);
+#endif
             if(Global.justCompletedRender)
                 return; // changing
             // Store textures in local variable for performance
@@ -441,6 +458,19 @@ namespace NonsensicalVideoGenerator
         }
         // Thread for loading videos
         private BackgroundWorker? loadVideosThread;
+        int loadGeneration;
+        readonly object thumbnailGate = new();
+        readonly Queue<PendingThumbnail> pendingThumbnails = new();
+
+        struct PendingThumbnail
+        {
+            public int Page;
+            public int Slot;
+            public string Path;
+            public int Width;
+            public int Height;
+        }
+
         private void LoadVideosThread(object? sender, DoWorkEventArgs e)
         {
             if(e.Argument == null)
@@ -458,7 +488,11 @@ namespace NonsensicalVideoGenerator
             // Args: GraphicsDevice graphicsDevice, int currentPage
             object[] args = (object[])e.Argument;
             GraphicsDevice graphicsDevice = (GraphicsDevice)args[0];
+#if DESKTOPGL
+            _ = graphicsDevice;
+#endif
             int currentPage = (int)args[1];
+            int generation = args.Length > 2 ? (int)args[2] : 0;
             // Load videos
             int a, b;
             for (a = 0; a < 3; a++)
@@ -468,7 +502,7 @@ namespace NonsensicalVideoGenerator
                     try
                     {
                         // Check to make sure we're still on the same page
-                        if (currentPage != page)
+                        if (currentPage != page || generation != Volatile.Read(ref loadGeneration))
                             return;
                         // Cancelled?
                         if (loadVideosThread != null && loadVideosThread.CancellationPending)
@@ -482,27 +516,48 @@ namespace NonsensicalVideoGenerator
                             int texScale = int.Parse(SaveData.saveValues["VideoPlaybackScale"], CultureInfo.InvariantCulture);
                             int texWidth = 29 * texScale;
                             int texHeight = 23 * texScale;
-                            Texture2D texture = new Texture2D(graphicsDevice, texWidth, texHeight);
-                            // Generate video thumbnail using ffmpeg
-                            string tempBmp = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "temp", "thumb.bmp");
-                            Process bmpProcess = Generator.GenerateThumbnail(LibraryData.GetLocalizedDefaultOutro(libraryFile.Path), tempBmp, currentRootType);
-                            // Defer until process is done
-                            while (!bmpProcess.HasExited)
+                            string source = LibraryData.GetLocalizedDefaultOutro(libraryFile.Path ?? "");
+                            string cacheDir = Path.Combine(AppPaths.Writable, "cache", "thumbs");
+                            string ffmpeg = ToolPaths.Ffmpeg(Global.useSystemFFmpeg);
+                            string kind = currentRootType == LibraryRootType.Audio ? MediaPreview.AudioKind
+                                : currentRootType == LibraryRootType.Image ? MediaPreview.ImageKind
+                                : MediaPreview.VideoKind;
+                            int seenGeneration = generation;
+                            int seenPage = currentPage;
+                            MediaPreview.ThumbnailResult thumb = MediaPreview.EnsureThumbnail(
+                                ffmpeg,
+                                source,
+                                cacheDir,
+                                texWidth,
+                                texHeight,
+                                kind,
+                                AppPaths.Writable,
+                                () => seenGeneration == Volatile.Read(ref loadGeneration) && seenPage == page);
+                            if (thumb.Cancelled || seenGeneration != Volatile.Read(ref loadGeneration) || seenPage != page)
+                                return;
+                            if (!thumb.Ok)
                             {
-                                System.Threading.Thread.Sleep(100);
-                                // Check to make sure we're still on the same page
-                                if (currentPage != page)
-                                    return;
+                                if (!string.IsNullOrEmpty(thumb.Error))
+                                    ConsoleOutput.WriteLine("Thumbnail failed: " + thumb.Error, Color.Red);
+                                continue;
                             }
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
-                                return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Load bitmap
-                            System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(tempBmp);
-                            // Convert bitmap to color data
+#if DESKTOPGL
+                            // The game thread uploads. Invoke() from this worker waits on
+                            // the OpenGL thread and used to stall the picker.
+                            lock (thumbnailGate)
+                            {
+                                pendingThumbnails.Enqueue(new PendingThumbnail
+                                {
+                                    Page = seenPage,
+                                    Slot = position - (12 * seenPage),
+                                    Path = thumb.Path,
+                                    Width = texWidth,
+                                    Height = texHeight
+                                });
+                            }
+#else
+                            Texture2D texture = new Texture2D(graphicsDevice, texWidth, texHeight);
+                            System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(thumb.Path);
                             Color[] colorData = new Color[texWidth * texHeight];
                             for (int i = 0; i < texWidth; i++)
                             {
@@ -516,24 +571,15 @@ namespace NonsensicalVideoGenerator
                                 }
                             }
                             texture.SetData(colorData);
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
-                                return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Delete temp file
                             bitmap.Dispose();
-                            File.Delete(tempBmp);
-                            // Check to make sure we're still on the same page
-                            if (currentPage != page)
+                            if (seenGeneration != Volatile.Read(ref loadGeneration) || seenPage != page)
+                            {
+                                texture.Dispose();
                                 return;
-                            // Cancelled?
-                            if (loadVideosThread != null && loadVideosThread.CancellationPending)
-                                return;
-                            // Update video players
-                            int pagelessPosition = position - (12 * page);
+                            }
+                            int pagelessPosition = position - (12 * seenPage);
                             videoPlayers.Add(pagelessPosition, texture);
+#endif
                         }
                     }
                     catch
@@ -542,24 +588,70 @@ namespace NonsensicalVideoGenerator
                     }
                 }
             }
-            // Done!
-            try
-            {
-                if(loadVideosThread != null)
-                    loadVideosThread.Dispose();
-            }
-            catch {}
-            loadVideosThread = null;
+            // Done. Do not Dispose this worker from inside DoWork, and do not
+            // clear the field if ChangeVideos already started the next one.
+            BackgroundWorker? self = loadVideosThread;
+            if (generation == Volatile.Read(ref loadGeneration))
+                Interlocked.CompareExchange(ref loadVideosThread, null, self);
         }
+#if DESKTOPGL
+        void PumpThumbnailUploads(GraphicsDevice graphicsDevice)
+        {
+            while (true)
+            {
+                PendingThumbnail item;
+                lock (thumbnailGate)
+                {
+                    if (pendingThumbnails.Count == 0)
+                        return;
+                    item = pendingThumbnails.Dequeue();
+                }
+                if (item.Page != page)
+                    continue;
+                try
+                {
+                    Color[] colorData = BmpThumbnail.Read(item.Path, item.Width, item.Height);
+                    if (item.Page != page)
+                        continue;
+                    Texture2D texture = new Texture2D(graphicsDevice, item.Width, item.Height);
+                    texture.SetData(colorData);
+                    if (item.Page != page)
+                    {
+                        texture.Dispose();
+                        continue;
+                    }
+                    if (videoPlayers.ContainsKey(item.Slot))
+                    {
+                        videoPlayers[item.Slot].Dispose();
+                        videoPlayers.Remove(item.Slot);
+                    }
+                    videoPlayers.Add(item.Slot, texture);
+                }
+                catch (Exception ex)
+                {
+                    ConsoleOutput.WriteLine("Thumbnail upload failed: " + ex.Message, Color.Red);
+                }
+            }
+        }
+#endif
         public void ChangeVideos(GraphicsDevice graphicsDevice)
         {
             try
             {
-                // Cancel previous thread
+                int generation = Interlocked.Increment(ref loadGeneration);
+                lock (thumbnailGate)
+                    pendingThumbnails.Clear();
+                // CancelAsync only. Dispose does not stop ffmpeg, and the next
+                // worker used to share temp/thumb.bmp with the one still running.
                 if (loadVideosThread != null)
                 {
-                    loadVideosThread.CancelAsync();
-                    loadVideosThread.Dispose();
+                    try
+                    {
+                        loadVideosThread.CancelAsync();
+                    }
+                    catch
+                    {
+                    }
                 }
                 // Clear video players
                 foreach (Texture2D texture in videoPlayers.Values)
@@ -571,7 +663,7 @@ namespace NonsensicalVideoGenerator
                 loadVideosThread = new BackgroundWorker();
                 loadVideosThread.DoWork += LoadVideosThread;
                 loadVideosThread.WorkerSupportsCancellation = true;
-                loadVideosThread.RunWorkerAsync(new object[] { graphicsDevice, page });
+                loadVideosThread.RunWorkerAsync(new object[] { graphicsDevice, page, generation });
             }
             catch(Exception e)
             {
@@ -583,6 +675,14 @@ namespace NonsensicalVideoGenerator
         }
         public bool Update(GameTime gameTime, bool handleInput)
         {
+#if DESKTOPGL
+            GraphicsDevice? uploadDevice = UserInterface.instance?.GraphicsDevice;
+            if (uploadDevice != null)
+                PumpThumbnailUploads(uploadDevice);
+            if (Global.exiting)
+                PlatformFileDialog.CancelActive();
+            PumpBackground();
+#endif
             if(actionController.Update(gameTime, handleInput))
                 return true;
             if(!registered)
@@ -599,7 +699,11 @@ namespace NonsensicalVideoGenerator
                 // Reimport all and demand change
                 demandChange = true;
             }
+#if DESKTOPGL
+            if(demandChange && !importCopyRunning)
+#else
             if(demandChange)
+#endif
             {
                 deleteConfirmPos = -1;
                 // Delete existing rects
@@ -629,6 +733,10 @@ namespace NonsensicalVideoGenerator
                 changed = true;
                 demandChange = false;
             }
+#if DESKTOPGL
+            if (importCopyRunning)
+                return false;
+#endif
             // Organizing
             if(!organizing && organizeFile > -1 && organizeType > -1)
             {
@@ -910,7 +1018,6 @@ namespace NonsensicalVideoGenerator
                                         demandChange = true;
                                         GlobalContent.PlaySound("Select");
                                         return true;
-#if WINDOWSDX
                                     case "DownloadMediaButton":
                                         if(!left)
                                             break;
@@ -926,7 +1033,11 @@ namespace NonsensicalVideoGenerator
                                                     {
                                                         Global.generator.progressText = L.T(0, "Library:Downloading");
                                                         downloading = true;
-                                                        string clipboard = Clipboard.GetText();
+#if WINDOWSDX
+                                                        string clipboard = System.Windows.Clipboard.GetText();
+#else
+                                                        string clipboard = PlatformClipboard.GetText();
+#endif
                                                         // Remove invalid characters
                                                         clipboard = clipboard.Replace("\r", "");
                                                         clipboard = clipboard.Replace("\t", "");
@@ -951,7 +1062,6 @@ namespace NonsensicalVideoGenerator
                                             GlobalContent.PlaySound("Error");
                                         }
                                         return true;
-#endif
                                     case "PageLeftButton":
                                         if(!left)
                                             break;
@@ -1088,6 +1198,34 @@ namespace NonsensicalVideoGenerator
                                                     Global.justCompletedRender = true;
                                                 }
                                                 */
+                                                string openPath = file.Path;
+                                                if (file.Type != null && file.Type.RootType == LibraryRootType.Video)
+                                                    openPath = LibraryData.GetLocalizedDefaultOutro(file.Path);
+                                                // DesktopGL plays a library video from PrepareLibraryPreview's worker,
+                                                // which already probes. This thread only rejects a missing or empty file.
+                                                bool previewOnWorker = false;
+#if DESKTOPGL
+                                                previewOnWorker = file.Type != null
+                                                    && file.Type.RootType == LibraryRootType.Video
+                                                    && SaveData.saveValues["UseExternalVideoPlayer"] == "false";
+#endif
+                                                string blocked;
+                                                bool rejected = previewOnWorker
+                                                    ? !MediaGuard.HasContent(openPath, out blocked)
+                                                    : !MediaGuard.CanOpen(openPath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out blocked);
+                                                if (rejected)
+                                                {
+                                                    ConsoleOutput.WriteLine(blocked, Color.Red);
+                                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                    try
+                                                    {
+                                                        GlobalContent.PlaySound("Error");
+                                                    }
+                                                    catch
+                                                    {
+                                                    }
+                                                    return true;
+                                                }
                                                 FramePlayer.Stop();
                                                 if (SaveData.saveValues["UseExternalVideoPlayer"] == "false")
                                                 {
@@ -1109,15 +1247,40 @@ namespace NonsensicalVideoGenerator
                                                         UserInterface.instance.videoPath = "";
                                                         if (file.Type != null && file.Type.RootType == LibraryRootType.Video)
                                                         {
-                                                            string cachePath = VideoCache.GetCachePath(LibraryData.GetLocalizedDefaultOutro(file.Path));
-                                                            UserInterface.instance.videoPath = cachePath;
-                                                            UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
-                                                            //UserInterface.instance.videoPlayer.IsLooped = true;
-                                                            UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
-                                                            Global.videoPlaying = true;
-                                                            UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
-                                                            FramePlayer.canPlayBgMusic = false;
-                                                            Global.generator.progressText = L.T(0, "Video:StatusPlay");
+#if DESKTOPGL
+                                                            // Transcode off this thread. FramePlayer.Update starts playback.
+                                                            Global.generator.progressText = L.T(0, "Video:StatusLoad");
+                                                            FramePlayer.PrepareLibraryPreview(LibraryData.GetLocalizedDefaultOutro(file.Path ?? ""));
+#else
+                                                            string sourcePath = LibraryData.GetLocalizedDefaultOutro(file.Path);
+                                                            string cachePath = VideoCache.GetCachePath(sourcePath);
+                                                            if (!MediaGuard.CanOpen(cachePath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string why))
+                                                            {
+                                                                ConsoleOutput.WriteLine(why, Color.Red);
+                                                                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                                Global.videoPlaying = false;
+                                                            }
+                                                            else if (!VideoLoad.TryLoad(cachePath, out var loaded, out _))
+                                                            {
+                                                                UserInterface.instance.video = null;
+                                                                UserInterface.instance.videoPath = "";
+                                                                Global.videoPlaying = false;
+                                                                FramePlayer.canPlayBgMusic = true;
+                                                                Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                                return true;
+                                                            }
+                                                            else
+                                                            {
+                                                                UserInterface.instance.videoPath = cachePath;
+                                                                UserInterface.instance.video = loaded;
+                                                                //UserInterface.instance.videoPlayer.IsLooped = true;
+                                                                UserInterface.instance.videoPlayer.Play(loaded);
+                                                                Global.videoPlaying = true;
+                                                                UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
+                                                                FramePlayer.canPlayBgMusic = false;
+                                                                Global.generator.progressText = L.T(0, "Video:StatusPlay");
+                                                            }
+#endif
                                                         }
                                                         else
                                                         {
@@ -1134,17 +1297,24 @@ namespace NonsensicalVideoGenerator
                                                 else
                                                 {
                                                     // Open the video in the default video player.
+#if DESKTOPGL
+                                                    PlatformShell.Open(file.Path);
+#else
                                                     ProcessStartInfo startInfo = new ProcessStartInfo()
                                                     {
                                                         FileName = file.Path,
                                                         UseShellExecute = true
                                                     };
                                                     Process.Start(startInfo);
+#endif
                                                 }
                                             }
                                             if (right)
                                             {
                                                 // Open directory and select file
+#if DESKTOPGL
+                                                PlatformShell.Reveal(LibraryData.GetLocalizedDefaultOutro(file.Path));
+#else
                                                 ProcessStartInfo startInfo = new()
                                                 {
                                                     FileName = "explorer.exe",
@@ -1152,6 +1322,7 @@ namespace NonsensicalVideoGenerator
                                                 };
                                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                                 Process.Start(startInfo);
+#endif
                                             }
                                             GlobalContent.PlaySound("Select");
                                         }
@@ -1374,13 +1545,18 @@ namespace NonsensicalVideoGenerator
                                             if(path.Key == currentLibraryType)
                                             {
                                                 // Open directory and select file
+                                                string folder = Path.GetFullPath(Path.Combine("library", path.Value));
+#if DESKTOPGL
+                                                PlatformShell.Open(folder);
+#else
                                                 ProcessStartInfo startInfo = new()
                                                 {
-                                                    FileName = Path.GetFullPath(@"library\" + path.Value),
+                                                    FileName = folder,
                                                     UseShellExecute = true,
                                                 };
                                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                                 Process.Start(startInfo);
+#endif
                                                 GlobalContent.PlaySound("Option");
                                                 return true;
                                             }
@@ -1434,6 +1610,37 @@ namespace NonsensicalVideoGenerator
                                                 {
                                                     GlobalContent.PlaySound("AddSource");
                                                 }
+                                            }
+                                        }
+#else
+                                        if(!currentLibraryType.Special)
+                                        {
+                                            string filter = LibraryData.libraryNames[currentLibraryType] + "|";
+                                            foreach (string extension in LibraryData.libraryFileTypes[currentLibraryType])
+                                            {
+                                                filter += "*" + extension + ";";
+                                            }
+                                            filter = filter[..^1];
+                                            string localizationToken = "Library:ImportVideoPicker";
+                                            if (currentLibraryType == DefaultLibraryTypes.Audio)
+                                                localizationToken = "Library:ImportAudioPicker";
+                                            if (currentLibraryType == DefaultLibraryTypes.Image)
+                                                localizationToken = "Library:ImportImagePicker";
+                                            LibraryType importType = currentLibraryType;
+                                            if (!PlatformFileDialog.TryBegin(
+                                                L.T(0, localizationToken, LibraryData.libraryNames[currentLibraryType]),
+                                                filter,
+                                                true,
+                                                null,
+                                                out PlatformFileDialog.FileChooser chooser))
+                                            {
+                                                ConsoleOutput.WriteLine(PlatformFileDialog.LastNotice ?? "A file dialog is already open.", Color.Yellow);
+                                            }
+                                            else
+                                            {
+                                                pendingChooser = chooser;
+                                                pendingImportType = importType;
+                                                Global.generator.progressText = "Choosing files…";
                                             }
                                         }
 #endif
@@ -1534,5 +1741,153 @@ namespace NonsensicalVideoGenerator
                 return true;
             return false;
         }
+#if DESKTOPGL
+        /// <summary>
+        /// Pagination updates only the drawn page. The chooser returns immediately,
+        /// so the user can leave Library while it is open. FramePlayer.Update calls
+        /// this every frame. The import type is the one captured at the click.
+        /// A later category does not retarget it. Global.exiting drops the pick.
+        /// </summary>
+        public static void PumpBackground()
+        {
+            for (int i = 0; i < Pagination.Pages.Length; i++)
+            {
+                if (Pagination.Pages[i] is LibraryPage page)
+                {
+                    page.PumpChooser();
+                    page.PumpImport();
+                    return;
+                }
+            }
+        }
+
+        void PumpChooser()
+        {
+            PlatformFileDialog.FileChooser? chooser = pendingChooser;
+            if (chooser == null)
+            {
+                chooserSeenTick = 0;
+                chooserTickLogged = false;
+                return;
+            }
+            if (!chooser.Finished)
+            {
+                // The dialog process is off this thread. Logging only after it
+                // has stayed open shows the update loop is still running.
+                long now = Environment.TickCount64;
+                if (chooserSeenTick == 0)
+                    chooserSeenTick = now;
+                else if (!chooserTickLogged && now - chooserSeenTick >= 200)
+                {
+                    chooserTickLogged = true;
+                    ConsoleOutput.WriteLine("File chooser is open and the UI loop is still running.");
+                }
+                return;
+            }
+            chooserSeenTick = 0;
+            chooserTickLogged = false;
+            string[] files = chooser.Files;
+            LibraryType? type = pendingImportType;
+            pendingChooser = null;
+            pendingImportType = null;
+            if (Global.exiting || files.Length == 0 || type == null)
+            {
+                Global.generator.progressText = "";
+                return;
+            }
+            BeginImport(type, files);
+        }
+
+        void BeginImport(LibraryType type, string[] files)
+        {
+            importCopyRunning = true;
+            lock (importGate)
+            {
+                importFinished = false;
+                importOk = 0;
+                importFail = 0;
+                importedReady = new List<LibraryFile>();
+            }
+            Global.generator.progressText = "Copying imported media…";
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var ready = new List<LibraryFile>();
+                int ok = 0;
+                int fail = 0;
+                foreach (string file in files)
+                {
+                    if (Global.exiting)
+                        break;
+                    try
+                    {
+                        LibraryFile libraryFile = new(Path.GetFileNameWithoutExtension(file), file, type);
+                        LibraryFile? copied = LibraryData.CopyIntoLibrary(libraryFile, () => Global.exiting);
+                        if (copied == null)
+                            fail++;
+                        else
+                        {
+                            ready.Add(copied);
+                            ok++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        fail++;
+                        ConsoleOutput.WriteLine("Import failed: " + ex.Message, Color.Red);
+                    }
+                }
+                lock (importGate)
+                {
+                    importOk = ok;
+                    importFail = fail;
+                    importedReady = ready;
+                    importFinished = true;
+                }
+            });
+        }
+
+        void PumpImport()
+        {
+            int ok;
+            int fail;
+            List<LibraryFile> ready;
+            lock (importGate)
+            {
+                if (!importFinished)
+                    return;
+                importFinished = false;
+                importCopyRunning = false;
+                ok = importOk;
+                fail = importFail;
+                ready = importedReady;
+                importedReady = new List<LibraryFile>();
+            }
+            for (int i = 0; i < ready.Count; i++)
+            {
+                try
+                {
+                    LibraryData.AddImported(ready[i]);
+                }
+                catch (Exception ex)
+                {
+                    ConsoleOutput.WriteLine("Import failed: " + ex.Message, Color.Red);
+                }
+            }
+            demandChange = true;
+            Global.generator.progressText = "";
+            try
+            {
+                if (ok > 0 && fail == 0)
+                    GlobalContent.PlaySound("AddSource");
+                else if (ok > 0)
+                    GlobalContent.PlaySound("AddSource");
+                else
+                    GlobalContent.PlaySound("Error");
+            }
+            catch
+            {
+            }
+        }
+#endif
     }
 }

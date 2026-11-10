@@ -10,7 +10,6 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
-using MonoGame.Extended.VideoPlayback;
 
 namespace NonsensicalVideoGenerator
 {
@@ -712,10 +711,33 @@ namespace NonsensicalVideoGenerator
                                                     UserInterface.instance.video = null;
                                                 }
                                                 string cachePath = VideoCache.GetCachePath(filePath);
+                                                if (!MediaGuard.CanOpen(cachePath, ToolPaths.Ffprobe(Global.useSystemFFprobe), out string blockedBoot))
+                                                {
+                                                    ConsoleOutput.WriteLine(blockedBoot, Color.Red);
+                                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                    try
+                                                    {
+                                                        GlobalContent.PlaySound("Error");
+                                                    }
+                                                    catch
+                                                    {
+                                                    }
+                                                    FramePlayer.canPlayBgMusic = true;
+                                                    return true;
+                                                }
+                                                if (!VideoLoad.TryLoad(cachePath, out var loaded, out _))
+                                                {
+                                                    UserInterface.instance.video = null;
+                                                    UserInterface.instance.videoPath = "";
+                                                    Global.videoPlaying = false;
+                                                    FramePlayer.canPlayBgMusic = true;
+                                                    Global.generator.progressText = L.T(0, "Video:StatusFailPlay");
+                                                    return true;
+                                                }
                                                 UserInterface.instance.videoPath = cachePath;
-                                                UserInterface.instance.video = VideoHelper.LoadFromFile(cachePath);
+                                                UserInterface.instance.video = loaded;
                                                 //UserInterface.instance.videoPlayer.IsLooped = true;
-                                                UserInterface.instance.videoPlayer.Play(UserInterface.instance.video);
+                                                UserInterface.instance.videoPlayer.Play(loaded);
                                                 Global.videoPlaying = true;
                                                 UserInterface.instance.videoPlayer.Volume = float.Parse(SaveData.saveValues["VideoVolume"], CultureInfo.InvariantCulture) / 100f;
                                             }
@@ -774,17 +796,18 @@ namespace NonsensicalVideoGenerator
                                 // Workshop plugin should open workshop page
                                 if (PluginHandler.plugins[i].workshopId != "" && PluginHandler.plugins[i].rootPath.Contains("workshop"))
                                 {
-                                    startInfo.FileName = "steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" + PluginHandler.plugins[i].workshopId;
-                                    startInfo.UseShellExecute = true;
-                                    ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                                    Process.Start(startInfo);
+                                    PlatformUrl.Open("steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" + PluginHandler.plugins[i].workshopId);
                                     return true;
                                 }
                                 // Open directory and select file
+#if DESKTOPGL
+                                PlatformShell.Reveal(PluginHandler.plugins[i].path);
+#else
                                 startInfo.FileName = "explorer.exe";
                                 startInfo.Arguments = "/select, \"" + Path.GetFullPath(PluginHandler.plugins[i].path) + "\"";
                                 ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
                                 Process.Start(startInfo);
+#endif
                                 return true;
                             }
                             // Settings button
@@ -808,11 +831,8 @@ namespace NonsensicalVideoGenerator
                                                 {
                                                     case 2:
                                                         GlobalContent.PlaySound("Select");
-                                                        ProcessStartInfo startInfo = new();
-                                                        startInfo.FileName = "steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" + (string.IsNullOrEmpty(PluginHandler.plugins[settingsIndex].submittedId) ? PluginHandler.plugins[settingsIndex].workshopId : PluginHandler.plugins[settingsIndex].submittedId);
-                                                        startInfo.UseShellExecute = true;
-                                                        ConsoleOutput.WriteLine($"> {startInfo.FileName} {startInfo.Arguments}", Color.Transparent);
-                                                        Process.Start(startInfo);
+                                                        string workshopId = string.IsNullOrEmpty(PluginHandler.plugins[settingsIndex].submittedId) ? PluginHandler.plugins[settingsIndex].workshopId : PluginHandler.plugins[settingsIndex].submittedId;
+                                                        PlatformUrl.Open("steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" + workshopId);
                                                         return true;
                                                 }
                                                 return false;
@@ -1180,13 +1200,7 @@ namespace NonsensicalVideoGenerator
                         if(Global.ready)
                         {
                             GlobalContent.PlaySound("Select");
-                            ProcessStartInfo psi = new()
-                            {
-                                FileName = "steam://openurl/https://steamcommunity.com/app/2516360/workshop/",
-                                UseShellExecute = true
-                            };
-                            ConsoleOutput.WriteLine($"> {psi.FileName} {psi.Arguments}", Color.Transparent);
-                            Process.Start(psi);
+                            PlatformUrl.Open("steam://openurl/https://steamcommunity.com/app/2516360/workshop/");
                         }
                         return true;
                 }
@@ -1227,12 +1241,16 @@ namespace NonsensicalVideoGenerator
                     case 2: // left click
                         GlobalContent.PlaySound("Select");
                         // Open the plugins folder in explorer
+#if DESKTOPGL
+                        PlatformShell.Open(Path.Combine(Directory.GetCurrentDirectory(), "plugins"));
+#else
                         Process.Start(new ProcessStartInfo
                         {
                             FileName = "explorer.exe",
                             Arguments = Path.Combine(Directory.GetCurrentDirectory(), "plugins"),
                             UseShellExecute = true
                         });
+#endif
                         return true;
                 }
                 return false;
@@ -1391,11 +1409,15 @@ namespace NonsensicalVideoGenerator
                         if(PluginHandler.CreatePlugin(customPluginFileName, customPluginName, templateType, out string file))
                         {
                             GlobalContent.PlaySound("Select");
-                            // load plugins
-                            if(SteamManager.initialized)
-                                PluginHandler.LoadWorkshop(false);
-                            else
-                                PluginHandler.LoadPluginsThreaded(false);
+                            // A boot-movie chooser finishes on a later frame. Reloading now
+                            // would list the addon before its clip is copied.
+                            if(!PluginHandler.ChooserPending)
+                            {
+                                if(SteamManager.initialized)
+                                    PluginHandler.LoadWorkshop(false);
+                                else
+                                    PluginHandler.LoadPluginsThreaded(false);
+                            }
                             editingSettings = false;
                             scrollOffset = 0;
                         }

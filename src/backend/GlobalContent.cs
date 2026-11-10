@@ -21,6 +21,21 @@ namespace NonsensicalVideoGenerator
         private static List<Song> songs = new List<Song>();
         public static void LoadDefaultContent(ContentManager contentManager, GraphicsDevice graphicsDevice)
         {
+#if DESKTOPGL
+            // Name the playback device before the first SoundEffect opens OpenAL.
+            // OpenAL Soft opens the OS default once. AudioOutputFollower keeps it on the
+            // default when the user switches output (macOS reopen; Linux pulse allow-moves).
+            try
+            {
+                AudioOutputFollower.Prepare(AppPaths.Writable);
+                string? device = AudioDiagnostics.DefaultOutputDeviceName();
+                ConsoleOutput.WriteLine(AudioDiagnostics.FormatOutputNote(DataRoots.PlatformKind(), device), Color.Transparent);
+            }
+            catch (Exception ex)
+            {
+                ConsoleOutput.WriteLine("Audio output: " + ex.Message, Color.Red);
+            }
+#endif
             // Dispose all existing content.
             UnloadContent();
             // Load default sounds.
@@ -36,6 +51,10 @@ namespace NonsensicalVideoGenerator
             AddSound("Start", ThemeManager.LoadLayeredContent<SoundEffect>("sound/start"));
             AddSound("CompatSelect", ThemeManager.LoadLayeredContent<SoundEffect>("sound/compatselect"));
             AddSound("Disambiguation", ThemeManager.LoadLayeredContent<SoundEffect>("sound/disambiguation"));
+#if DESKTOPGL
+            // Idempotent: a theme reload runs this method again.
+            AudioOutputFollower.Start();
+#endif
             // Load default fonts.
             int scale = (int)float.Parse(SaveData.saveValues["ScreenScale"], CultureInfo.InvariantCulture);
             // font scale must be between 1 and 4

@@ -1,51 +1,97 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Reflection;
 
 namespace NonsensicalVideoGenerator
 {
     // Dirty workaround for the fact that MonoGame.Extended2.VideoPlayback doesn't allow file unlocking
     public static class VideoCache
     {
-        private static Dictionary<string, string> Cache = new Dictionary<string, string>();
+        static readonly object Gate = new();
+        static readonly Dictionary<string, string> Cache = new();
+
         public static string GetCachePath(string video)
         {
-            // Generate a UUID based on the video file name and last write time
-            // This ensures that the video is fingerprinted and would account for any changes to the video file
-            string videoUniqueKey = Path.GetFileName(video) + "_" + File.GetLastWriteTime(video).ToString("yyyyMMddHHmmss");
-            // Check if the video is already in the cache
-            if(Cache.ContainsKey(videoUniqueKey))
-                return Cache[videoUniqueKey];
-            // If the video is not in the cache, copy it to the cache directory and return the path
-            string cache = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "cache");
-            if(!Directory.Exists(cache))
-                Directory.CreateDirectory(cache);
-            string videoFileExtension = Path.GetExtension(video);
-            string cachePath = Path.Combine(cache, Path.GetRandomFileName() + videoFileExtension);
+            lock (Gate)
+            {
+                string source = Resolve(video);
+                if (!File.Exists(source))
+                    return source;
+                string videoUniqueKey;
+                try
+                {
+                    FileInfo info = new FileInfo(source);
+                    videoUniqueKey = Path.GetFileName(source)
+                        + "_" + info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture)
+                        + "_" + info.Length.ToString(CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    return source;
+                }
+                if (Cache.TryGetValue(videoUniqueKey, out string? cached) && !string.IsNullOrEmpty(cached) && File.Exists(cached))
+                    return cached;
+                string cache = Path.Combine(AppPaths.Writable, "cache");
+                if (!Directory.Exists(cache))
+                    Directory.CreateDirectory(cache);
+                string cachePath = Path.Combine(cache, Path.GetRandomFileName() + Path.GetExtension(source));
+                try
+                {
+                    File.Copy(source, cachePath);
+                }
+                catch
+                {
+                    // The player locked the file. Do not remember a path that was never copied.
+                    try
+                    {
+                        if (File.Exists(cachePath))
+                            File.Delete(cachePath);
+                    }
+                    catch
+                    {
+                    }
+                    return source;
+                }
+                Cache[videoUniqueKey] = cachePath;
+                return cachePath;
+            }
+        }
+
+        public static void ClearCache()
+        {
+            lock (Gate)
+            {
+                DeleteFiles(Path.Combine(AppPaths.Writable, "cache"));
+                DeleteFiles(Path.Combine(AppPaths.Writable, "cache", "play"));
+                Cache.Clear();
+            }
+        }
+
+        static string Resolve(string video)
+        {
+            if (string.IsNullOrEmpty(video))
+                return video ?? "";
             try
             {
-                File.Copy(video, cachePath);
+                if (Path.IsPathRooted(video) || File.Exists(video))
+                    return Path.GetFullPath(video);
+                return Path.GetFullPath(Path.Combine(AppPaths.Writable, video));
             }
             catch
             {
-                // We have to give up copying, as the resulting file was locked by the video player
+                return video;
             }
-            Cache.Add(videoUniqueKey, cachePath);
-            return cachePath;
         }
-        public static void ClearCache()
+
+        static void DeleteFiles(string cache)
         {
-            // Loop through all videos inside the cache path directory and delete them
-            string cache = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".", "cache");
-            if(Directory.Exists(cache))
+            if (!Directory.Exists(cache))
+                return;
+            foreach (string file in Directory.GetFiles(cache))
             {
-                foreach(string file in Directory.GetFiles(cache))
-                {
-                    File.Delete(file);
-                }
+                File.Delete(file);
             }
-            // Clear the cache dictionary
-            Cache.Clear();
         }
     }
 }

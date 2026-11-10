@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants>$(DefineConstants);DESKTOPGL</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\src\data\MediaGuard.cs" Link="MediaGuard.cs" />
+    <Compile Include="..\..\..\src\data\VideoLoad.cs" Link="VideoLoad.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="MonoGame.Extended.VideoPlayback">
+      <HintPath>..\..\..\packages\MonoGame.Extended.VideoPlayback\MonoGame.Extended.VideoPlayback.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoGame.Extended2">
+      <HintPath>..\..\..\packages\MonoGame.Extended2\MonoGame.Extended2.dll</HintPath>
+    </Reference>
+    <Reference Include="Sdcb.FFmpeg">
+      <HintPath>..\..\..\packages\Sdcb.FFmpeg\Sdcb.FFmpeg.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>$(MonoGameFrameworkDll)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
